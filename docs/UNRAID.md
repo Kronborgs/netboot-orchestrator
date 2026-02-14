@@ -132,7 +132,7 @@ BACKEND_PORT=8000
 BACKEND_DEBUG=false
 
 # Frontend configuration
-FRONTEND_PORT=3000
+FRONTEND_PORT=30000
 
 # Netboot configuration
 TFTP_SERVER_IP=<your-unraid-ip>
@@ -178,7 +178,7 @@ dhcp-option=option:bootfile-name,lpxelinux.0
 Ensure these ports are accessible from your network:
 
 ```
-3000/tcp   - Frontend UI
+30000/tcp  - Frontend UI
 8000/tcp   - API Server
 69/udp     - TFTP (netboot)
 80/tcp     - HTTP (boot files)
@@ -416,7 +416,7 @@ Before using in production, verify:
 
 - [ ] All containers running: `docker-compose ps`
 - [ ] API responsive: `curl http://localhost:8000/health`
-- [ ] Frontend accessible: Open in browser to `http://<ip>:3000`
+- [ ] Frontend accessible: Open in browser to `http://<ip>:30000`
 - [ ] TFTP working: Test boot file access
 - [ ] HTTP working: Download boot image
 - [ ] iSCSI working: Test target connection

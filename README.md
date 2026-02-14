@@ -68,7 +68,7 @@ docker-compose ps
 
 | Interface | URL | Purpose |
 |-----------|-----|---------|
-| **Web Dashboard** | http://localhost:3000 | Device & image management |
+| **Web Dashboard** | http://localhost:30000 | Device & image management |
 | **API Documentation** | http://localhost:8000/docs | Interactive API explorer |
 | **API Health** | http://localhost:8000/health | Service status check |
 
@@ -101,7 +101,7 @@ docker-compose ps
                      │
         ┌────────────▼─────────────┐
         │  React Web Dashboard     │
-        │  (Port 3000)             │
+        │  (Port 30000)            │
         │  ✅ Device List          │
         │  ✅ Image Management     │
         │  ✅ Boot Configuration   │
@@ -360,7 +360,7 @@ cd frontend
 # Install dependencies
 npm install
 
-# Start development server (http://localhost:3000)
+# Start development server (http://localhost:30000)
 npm run dev
 
 # Build for production
