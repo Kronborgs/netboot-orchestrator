@@ -1,0 +1,120 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: netboot-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data
+    environment:
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - DATA_PATH=/data
+      - LOG_LEVEL=INFO
+    networks:
+      - netboot
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      - tftp
+      - http-server
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://localhost:8000
+    container_name: netboot-frontend
+    ports:
+      - "3000:3000"
+    networks:
+      - netboot
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  tftp:
+    build:
+      context: ./netboot/tftp
+      dockerfile: Dockerfile
+    container_name: netboot-tftp
+    ports:
+      - "69:69/udp"
+      - "67:67/udp"
+    volumes:
+      - ./data:/data
+    networks:
+      - netboot
+    environment:
+      - LOG_LEVEL=info
+    healthcheck:
+      test: ["CMD", "test", "-d", "/data/tftp"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  http-server:
+    build:
+      context: ./netboot/http
+      dockerfile: Dockerfile
+    container_name: netboot-http
+    ports:
+      - "8080:80"
+    volumes:
+      - ./data:/data
+    networks:
+      - netboot
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  iscsi-target:
+    build:
+      context: ./netboot/iscsi
+      dockerfile: Dockerfile
+    container_name: netboot-iscsi
+    ports:
+      - "3260:3260"
+    volumes:
+      - ./data:/data
+    networks:
+      - netboot
+    privileged: true
+    cap_add:
+      - SYS_ADMIN
+      - SYS_PTRACE
+    security_opt:
+      - apparmor:unconfined
+    environment:
+      - LOG_LEVEL=info
+    healthcheck:
+      test: ["CMD", "test", "-d", "/data/iscsi/images"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  netboot:
+    driver: bridge
+
+volumes:
+  data:
+    driver: local
