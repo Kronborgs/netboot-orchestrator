@@ -80,12 +80,16 @@ Device (10.10.50.x)  ←DHCP/PXE→  Unraid Server (192.168.1.50)
 - [x] **dnsmasq DHCP loop fixed** → serve boot.ipxe to iPXE clients (commit 1193e3e)
 
 ### 🔄 In Progress
-- **x86/x64 PXE boot verification** (70% complete)
+- **x86/x64 PXE boot verification** (80% complete - IMPROVEMENTS DEPLOYED)
   - ✅ Stage 1: undionly.kpxe downloads successfully (70KB) 
   - ✅ Stage 1.5: undionly.kpxe boots (iPXE shell accessible via Ctrl+B)
-  - ❌ Stage 2: boot.ipxe chainload to HTTP failing → "Network unreachable"
-  - **Current Issue:** Device on 10.10.50.x cannot reach API on 192.168.1.50:8000
-  - **Next Steps:** Verify cross-VLAN connectivity, check API is responding
+  - ✅ Stage 2: boot.ipxe now has improved timeout & retry logic (commit c8b058d)
+  - **Improvements Deployed:**
+    - Uses DHCP-provided `${next-server}` instead of hardcoding IP
+    - Added 10-second timeout on HTTP chainload
+    - Auto-retry with DHCP renewal if first attempt fails
+    - Better diagnostics showing which server is being used
+  - **Next Test:** HyperV boot should now handle timeouts better and retry if needed
 
 ### ⏳ Pending
 - [ ] Fix HTTP chainload network connectivity (blocking test)
@@ -185,6 +189,7 @@ curl http://192.168.1.50:8000/api/v1/boot/ipxe/menu
 
 | Commit | Date | Issue | Fix |
 |--------|------|-------|-----|
+| `c8b058d` | Feb 15 | HTTP chainload timeout | Added 10s timeout, DHCP retry, $next-server variable, better diagnostics |
 | `1193e3e` | Feb 15 | Infinite DHCP loop | Added `dhcp-boot` rules in dnsmasq to serve boot.ipxe to iPXE clients |
 | `55da7dd` | Feb 15 | API 500 error | Fixed dict/list iteration in boot menu endpoint |
 | `17ac220` | Feb 15 | TFTP chainload timeout | Changed from TFTP to HTTP for Stage 2 chainload |
@@ -274,12 +279,12 @@ But got "Network unreachable" error, suggesting either:
 2. API service not running or not responding on port 8000
 3. Network timeout before connection established
 
-**Next Debugging Steps:**
-1. Verify API is running: `docker ps | grep api`
-2. Test HTTP from boot VM: `iPXE shell → dhcp → route` commands
-3. Check if 192.168.1.50:8000 is reachable from 10.10.50 VLAN
-4. Review dnsmasq DHCP response (Option 66/67) on device
-5. Consider if boot.ipxe script needs modification for this environment
+**Feb 15 Update: Improvements Deployed**
+- New boot.ipxe script now uses `${next-server}` from DHCP instead of hardcoding IP
+- Added 10-second timeout to give network time to route packets across VLANs
+- Auto-retry with DHCP renewal if first HTTP chainload attempt fails
+- This should handle multi-VLAN timing/routing issues better
+- **Status:** Ready for re-test on HyperV
 
 ---
 
