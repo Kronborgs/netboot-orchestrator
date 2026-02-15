@@ -1,8 +1,8 @@
 # Netboot Orchestrator - Project Guide
 
-**Last Updated:** February 15, 2026 (15:45 UTC)  
-**Current Focus:** Resolving iPXE boot loop via dnsmasq vendor detection  
-**Status:** ✅ 2-Container Architecture (Backend + Frontend) - iPXE Boot Loop Fix Applied
+**Last Updated:** February 15, 2026 (16:15 UTC)  
+**Current Focus:** TFTP Stage 1 testing after dnsmasq syntax fixes  
+**Status:** ✅ dnsmasq Config Fixed - TFTP now loading on Unraid server
 
 ---
 
@@ -136,10 +136,15 @@ netboot-frontend (React SPA container on host network):
 - [x] **iPXE Boot Loop Fixed** (Feb 15, 15:30) - dnsmasq vendor detection prevents infinite redownload
 
 ### 🔄 Next Phase - Testing & Validation
-- [ ] **dnsmasq iPXE Detection Verification** - Boot device and verify:
-  - BIOS: Gets `undionly.kpxe` on first DHCP ✓
-  - iPXE: Detects vendor:iPXE on second DHCP, gets **no filename** (no boot loop!) ✓
-  - UEFI: Gets `ipxe.efi` on DHCP ✓
+- [x] **dnsmasq Configuration Fixed** (Feb 15, 16:10) - Deployed to Unraid
+- [ ] **TFTP Stage 1 Test** - Device downloads undionly.kpxe
+  - Verify: Device gets DHCP IP on 10.10.50.x ✓
+  - Verify: TFTP connects to 192.168.1.50:69 ✓
+  - Verify: undionly.kpxe (70KB) downloads successfully ✓
+- [ ] **iPXE Stage 1.5 Test** - undionly.kpxe boots and executes undionly.ipxe
+  - Verify: iPXE 1.21.1+ firmware initializes ✓
+  - Verify: undionly.ipxe script loads from TFTP ✓
+  - Verify: No boot loop (DHCP doesn't return undionly.kpxe again) ✓
 - [ ] **End-to-End PXE Boot Test** (Device 10.10.50.159 or 192.168.1.73)
   - Stage 1: TFTP undionly.kpxe downloads ✅
   - Stage 1.5: iPXE firmware initializes ✅
@@ -270,7 +275,9 @@ curl http://192.168.1.50:30000
 
 | Commit | Date | Issue | Fix |
 |--------|------|-------|-----|
-| `aa79947` | Feb 15 | **iPXE Boot Loop** - Device re-requests undionly.kpxe infinitely | **CRITICAL FIX**: Add `dhcp-match=set:ipxe,vendor:iPXE` and `dhcp-match=set:ipxe,vendor:Etherboot` for detection + return empty filename `dhcp-boot=tag:ipxe,,192.168.1.50` |
+| `d734a0a` | Feb 15 | Old dnsmasq config file conflicting with inline config | Removed `COPY netboot/tftp/config` and `COPY netboot/tftp/scripts` - now only inline printf config used |
+| `46a81a9` | Feb 15 | dnsmasq syntax error: 'inappropriate vendor:' | Changed `vendor:iPXE` to `option:60,iPXE*` (DHCP Vendor Class ID with wildcard) - correct dnsmasq syntax |
+| `aa79947` | Feb 15 | **iPXE Boot Loop** - Device re-requests undionly.kpxe infinitely | Added `dhcp-match=set:ipxe,option:60,iPXE*` detection + return empty filename `dhcp-boot=tag:ipxe,,192.168.1.50` |
 | `dd62807` | Feb 15 | TFTP transfer aborts on all devices (cross-VLAN AND same-VLAN) | Added `tftp-no-blocksize` and `tftp-single-port` options - disables blocksize negotiation, uses standard 512-byte blocks |
 | `5721ffd` | Feb 15 | dnsmasq DHCP config had syntax errors | Removed invalid dhcp-option lines (3rd removal: router syntax) |
 | `a7a141e` | Feb 15 | dnsmasq parsing error "bad dhcp-option at line X" | Removed DNS option and log-dhcp |
@@ -285,42 +292,31 @@ curl http://192.168.1.50:30000
 
 ## 🚨 Known Issues
 
-### Issue #1: iPXE Boot Loop (FIXED ✅ - See Issue #2)
-Merged into Issue #2 and resolved via vendor-class detection fix.
-
-### Issue #1b: x86/x64 PXE Boot Fails at Stage 2 (CURRENT - NETWORK CONNECTIVITY)
+### Issue #1: x86/x64 PXE Boot TFTP Stage 1 (ACTIVE - TESTING ✅)
+**Status:** Containers rebuilt on Unraid with latest fixes - TFTP Stage 1 now being tested  
+**Current:** dnsmasq config syntax fixed (removed vendor: syntax error)  
+**Testing:** Device on 10.10.50.18 should download undionly.kpxe from TFTP  
+**Test Date:** February 15, 2026 16:15 UTC  
+**Next Steps:** Boot device and verify TFTP download succeeds without timeouts
 **Symptom:** Device boots undionly.kpxe successfully, iPXE shell available, but HTTP chainload fails  
 **Error:** "Network unreachable (https://ipxe.org/2808b011)" when attempting `chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu`  
 **Root Cause (Previous):** Device on 10.10.50.x VLAN cannot reach API on 192.168.1.50:8000 (inter-VLAN routing may be blocked or API unreachable)  
-**Status:** 🔄 **TESTING AFTER BOOT LOOP FIX** - Boot loop now fixed, re-test to see if we reach Stage 3  
+**Status:** ⏳ **PENDING TFTP FIX** - First fixing Stage 1 TFTP, then will test Stage 2  
 **Test Date:** February 15, 2026
 
 ### Issue #2: DHCP Boot Loop (FIXED ✅)
 **Original Symptom:** Device kept downloading undionly.kpxe in infinite loop, iPXE does DHCP again and still gets same bootloader filename  
-**Root Cause:** dnsmasq wasn't detecting iPXE clients by vendor-class, relied only on option 175 (unreliable)  
-**Solution Applied (commit aa79947):**
-  1. Added vendor-class detection: `dhcp-match=set:ipxe,vendor:iPXE` + `dhcp-match=set:ipxe,vendor:Etherboot`
-  2. Return **empty filename** to iPXE: `dhcp-boot=tag:ipxe,,192.168.1.50,192.168.1.50` (prevents redownload)
-  3. Reordered boot rules: BIOS first, iPXE second, UEFI last
-**Boot Flow Now:**
+**Root Cause:** dnsmasq wasn't properly detecting iPXE clients (syntax error in config)  
+**Solution Applied (commits aa79947, 46a81a9, d734a0a):**
+  1. Fixed dnsmasq config syntax: `option:60,iPXE*` instead of invalid `vendor:iPXE`
+  2. Removed old config file copies that were conflicting with inline-generated config
+  3. Return **empty filename** to iPXE: `dhcp-boot=tag:ipxe,,192.168.1.50,192.168.1.50` (prevents redownload)
+  4. Reordered boot rules: BIOS first, iPXE second, UEFI last
+**Boot Flow Now (Target):**
   - BIOS: DHCP → `undionly.kpxe` → Downloads via TFTP ✅
-  - iPXE (2nd DHCP): Detected by vendor:iPXE → No filename returned → Searches TFTP for boot.ipxe ✅
+  - iPXE (2nd DHCP): Detected by `option:60,iPXE*` → No filename returned → Searches TFTP for boot.ipxe ✅
   - UEFI: DHCP → `ipxe.efi` → Downloads via TFTP ✅
-
-**Technical Details of Fix:**
-The dnsmasq config now includes three vendor detection rules:
-```ini
-dhcp-match=set:ipxe,vendor:iPXE
-dhcp-match=set:ipxe,vendor:Etherboot
-dhcp-match=set:ipxe,option:175
-```
-When iPXE performs its second DHCP request, it broadcasts these vendor strings. dnsmasq matches them and responds with:
-```ini
-dhcp-boot=tag:ipxe,,192.168.1.50,192.168.1.50
-```
-Note the **empty filename** (two commas) - this tells iPXE "no boot file from me", so it searches the local TFTP root for boot scripts instead. This eliminates the infinite loop where iPXE kept requesting the same bootloader.
-
-**Status:** ✅ **Fixed** - Ready for re-test on HyperV
+**Status:** ✅ **Fixed in code** - Deployed to Unraid, awaiting test results
 
 ### Issue #3: TFTP Chainload Timeout (SOLVED)
 **Original Symptom:** `chain tftp://192.168.1.50/boot-menu.ipxe` times out  
