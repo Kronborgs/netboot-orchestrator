@@ -38,23 +38,17 @@ echo MAC Address: ${mac}
 echo IPv4 Address: ${ipv4}
 echo Gateway: ${gw}
 echo
-echo Initializing network...
+echo Initializing network with DHCP...
 dhcp
 echo
 echo Attempting HTTP chainload to API on 192.168.1.50:8000
-echo
-timeout 15 chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu && goto success || goto retry
+timeout 15 chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu || goto retry
 
 :retry
 echo
 echo WARNING: HTTP request failed - retrying with DHCP renewal...
-echo
 dhcp
-timeout 15 chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu && goto success || goto shell
-
-:success
-# Boot menu loaded successfully
-exit
+timeout 15 chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu || goto shell
 
 :shell
 echo
@@ -64,14 +58,10 @@ echo ===============================================
 echo
 echo Cannot reach: http://192.168.1.50:8000/api/v1/boot/ipxe/menu
 echo
-echo Probable causes:
-echo   1. Inter-VLAN routing blocked
-echo   2. API not running or not responding
-echo   3. Network connectivity issue
-echo
-echo Try:
+echo Try these diagnostic commands:
 echo   ping 192.168.1.50
 echo   chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu
+echo   dhcp
 echo
 shell
 reboot
