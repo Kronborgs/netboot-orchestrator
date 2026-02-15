@@ -80,11 +80,15 @@ Device (10.10.50.x)  ←DHCP/PXE→  Unraid Server (192.168.1.50)
 - [x] **dnsmasq DHCP loop fixed** → serve boot.ipxe to iPXE clients (commit 1193e3e)
 
 ### 🔄 In Progress
-- **x86/x64 PXE boot verification** (95% complete)
-  - Awaiting HyperV test with fixed DHCP handling
-  - All infrastructure ready, needs end-to-end test
+- **x86/x64 PXE boot verification** (70% complete)
+  - ✅ Stage 1: undionly.kpxe downloads successfully (70KB) 
+  - ✅ Stage 1.5: undionly.kpxe boots (iPXE shell accessible via Ctrl+B)
+  - ❌ Stage 2: boot.ipxe chainload to HTTP failing → "Network unreachable"
+  - **Current Issue:** Device on 10.10.50.x cannot reach API on 192.168.1.50:8000
+  - **Next Steps:** Verify cross-VLAN connectivity, check API is responding
 
 ### ⏳ Pending
+- [ ] Fix HTTP chainload network connectivity (blocking test)
 - [ ] ARM/RPI4/5 U-Boot bootloader compilation
 - [ ] Device MAC registration WebUI
 - [ ] Device type selector (x86 vs RPI in menu)
@@ -190,19 +194,27 @@ curl http://192.168.1.50:8000/api/v1/boot/ipxe/menu
 
 ## 🚨 Known Issues
 
-### Issue #1: x86/x64 PXE Boot Loop (PARTIALLY FIXED)
-**Symptom:** Device keeps downloading undionly.kpxe in infinite loop  
-**Root Cause:** dnsmasq wasn't detecting iPXE clients, kept serving undionly.kpxe on second DHCP  
-**Fix Applied:** Added `dhcp-boot=tag:ipxe,boot.ipxe` rule in dnsmasq.conf  
-**Status:** ✅ Fixed (commit 1193e3e), needs testing
+### Issue #1: x86/x64 PXE Boot Fails at Stage 2 (CURRENT - NETWORK CONNECTIVITY)
+**Symptom:** Device boots undionly.kpxe successfully, iPXE shell available, but HTTP chainload fails  
+**Error:** "Network unreachable (https://ipxe.org/2808b011)" when attempting `chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu`  
+**Root Cause:** Device on 10.10.50.x VLAN cannot reach API on 192.168.1.50:8000 (inter-VLAN routing may be blocked or API unreachable)  
+**Status:** 🔄 **DEBUGGING IN PROGRESS** - Need to verify network connectivity from device to API  
+**Test Date:** February 15, 2026
 
-### Issue #2: TFTP Chainload Timeout (SOLVED)
-**Symptom:** `chain tftp://192.168.1.50/boot-menu.ipxe` times out  
+### Issue #2: DHCP Boot Loop (ATTEMPTED FIX - NEEDS VERIFICATION)
+**Original Symptom:** Device kept downloading undionly.kpxe in infinite loop  
+**Root Cause:** dnsmasq wasn't configured to serve boot.ipxe to iPXE clients on second DHCP  
+**Attempted Fix:** Added `dhcp-boot=tag:ipxe,boot.ipxe` rules in dnsmasq.conf (commit 1193e3e)  
+**Current Status:** ⏳ **Cannot verify yet** - depends on fixing Stage 2 network connectivity  
+**Note:** The router (not dnsmasq) provides DHCP Option 67, so dnsmasq dhcp-boot rules may not apply as expected
+
+### Issue #3: TFTP Chainload Timeout (SOLVED)
+**Original Symptom:** `chain tftp://192.168.1.50/boot-menu.ipxe` times out  
 **Root Cause:** Multi-VLAN UDP routing not working from 10.10.50.x to 192.168.1.50  
-**Solution:** Changed to HTTP chainload instead (TCP routing works)  
+**Solution:** Changed to HTTP chainload instead (TCP routing works better)  
 **Status:** ✅ Solved (commit 17ac220)
 
-### Issue #3: API Returns 500 Error (FIXED)
+### Issue #4: API Returns 500 Error (FIXED)
 **Symptom:** `http://192.168.1.50:8000/api/v1/boot/ipxe/menu` → 500 Internal Server Error  
 **Root Cause:** `list_os_installer_files()` returns dict, code tried to iterate directly  
 **Fix:** Extract `files` array from dict: `installers = result.get('files', [])`  
@@ -212,18 +224,95 @@ curl http://192.168.1.50:8000/api/v1/boot/ipxe/menu
 
 ## 🧪 Testing Checklist
 
-### HyperV Test (Next Step)
-- [ ] Boot HyperV VM on 10.10.50 VLAN
-- [ ] Verify undionly.kpxe downloads (Stage 1)
-- [ ] Verify boot.ipxe auto-executes (Stage 1.5)
-- [ ] Verify chainload to API via HTTP (Stage 2)
-- [ ] See boot menu or error message in iPXE shell
+### HyperV Test Results (February 15, 2026 - PARTIAL FAILURE)
 
-### Success Indicators
-- **Boot menu appears** → full chain working ✅
-- **iPXE shell with "No OS installers available"** → API working but no images ✅
-- **TFTP Aborted error** → DHCP loop still happening ❌
-- **HTTP Connection Refused** → API not responding ❌
+**Test Setup:**
+- Device: HyperV VM (MAC: 00:15:5d:32:16:03)
+- Network: Boot VLAN 10.10.50.159
+- Target: Unraid 192.168.1.50 (API port 8000, TFTP port 69)
+- Test Method: Boot VM via PXE, observe boot sequence
+
+**Results:**
+```
+✅ Stage 1 (TFTP): undionly.kpxe downloaded (70810 bytes)
+✅ Stage 1.5 (iPXE Boot): undionly.kpxe booted successfully
+✅ iPXE Ready: Shell accessible via Ctrl+B, confirming iPXE loaded
+❌ Stage 2 (HTTP): boot.ipxe chainload to API failed
+   Error: "Network unreachable (https://ipxe.org/2808b011)"
+```
+
+**Test Log Output:**
+```
+iPXE 1.21.1+ (q1d23d) — Open Source Network Boot Firmware
+netO: 00:15:5d:32:16:03 using undionly on 0000:00:0a.0 (Ethernet) [open]
+[Link:up, TX:0, RX:1, RX:0, RXE:01]
+TXE: 1 x "Network unreachable (https://ipxe.org/2808b011)"
+Configuring (netO 00:15:5d:32:16:03)... ok
+netO: 10.10.50.159/255.255.255.0 gw 10.10.50.1
+Next server: 192.168.1.50
+Filename: undionly.kpxe
+tftp://192.168.1.50/undionly.kpxe... ok
+undionly.kpxe : 70810 bytes [IPXE-NBP]
+PXE->DB1: iPXE at 7BE4:0B40, entry point at 7BE4:0153
+[iPXE shell ready - Press Ctrl+B]
+```
+
+**Analysis:**
+- DHCP still providing filename = `undionly.kpxe` (expected, can't control router)
+- TFTP Stage 1 working perfectly (70KB downloaded)
+- iPXE initialized correctly within undionly.kpxe
+- boot.ipxe likely loaded from TFTP but chainload to HTTP failed
+- Error suggests network path from 10.10.50.x to 192.168.1.50:8000 is blocked or API unreachable
+
+**Root Cause Hypothesis:**
+The device is on 10.10.50 VLAN, API is on 192.168.1.50. The HTTP chainload attempt in boot.ipxe tried to reach:
+```
+chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu
+```
+But got "Network unreachable" error, suggesting either:
+1. Inter-VLAN routing to 192.168.1.50:8000 is blocked
+2. API service not running or not responding on port 8000
+3. Network timeout before connection established
+
+**Next Debugging Steps:**
+1. Verify API is running: `docker ps | grep api`
+2. Test HTTP from boot VM: `iPXE shell → dhcp → route` commands
+3. Check if 192.168.1.50:8000 is reachable from 10.10.50 VLAN
+4. Review dnsmasq DHCP response (Option 66/67) on device
+5. Consider if boot.ipxe script needs modification for this environment
+
+---
+
+### Future Test Checklist
+
+#### Debugging Internet Connectivity (REQUIRED BEFORE NEXT TEST)
+- [ ] SSH into HyperV VM (if possible)
+- [ ] Run: `ping 192.168.1.50` from 10.10.50.159
+- [ ] Check if TCP:8000 is reachable: `telnet 192.168.1.50 8000` or `nc -zv 192.168.1.50 8000`
+- [ ] Review network routing table on Unraid
+- [ ] Check firewall rules on both VLANs
+- [ ] Verify API service responds: `curl http://192.168.1.50:8000/api/v1/boot/ipxe/menu` from Unraid
+
+#### If API Unreachable (Connectivity Issue)
+- [ ] Verify inter-VLAN routing is enabled
+- [ ] Check Unifi router VLAN configuration
+- [ ] Confirm 192.168.1.50 is gateway/router for 10.10.50
+- [ ] Test with hardcoded IP instead of hostname
+- [ ] May need to modify boot.ipxe to use DHCP variables or fallback
+
+#### If API Reachable and Still Fails
+- [ ] Check if chainload syntax is correct
+- [ ] Verify API returns valid iPXE script format
+- [ ] Check if there's a parse error in API response
+- [ ] Test with explicit boot option instead of chainload
+
+---
+
+### HyperV Success Criteria
+- **Boot menu appears** → full chain working ✅ GOAL
+- **iPXE shell with "No OS installers available"** → API reached but empty ✅ ACCEPTABLE
+- **Network unreachable error** → connectivity issue ❌ CURRENT STATE
+- **iPXE shell offered (Ctrl+B)** → Stage 1/1.5 complete, Stage 2 failed ✅ PARTIAL
 
 ---
 
