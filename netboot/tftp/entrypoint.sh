@@ -6,82 +6,38 @@ echo "[TFTP] Starting dnsmasq TFTP server..."
 # Create TFTP directories
 mkdir -p /data/tftp
 
-# Download iPXE  boot files
+# ===============================================
+# Build custom undionly.kpxe with embedded script
+# ===============================================
+echo "[TFTP] Checking for custom undionly.kpxe build..."
+
+if [ -f "/tftp/scripts/embed.ipxe" ] && command -v gcc &>/dev/null; then
+    echo "[TFTP] Building custom undionly.kpxe with embedded boot script..."
+    bash /entrypoint-build.sh 2>&1 || (
+        echo "[TFTP] WARNING: Custom build failed, falling back to standard download"
+        rm -f /data/tftp/undionly.kpxe
+    )
+else
+    echo "[TFTP] Custom build dependencies not available, will download standard undionly.kpxe"
+fi
+
+# ===============================================
+# Download standard boot files if custom build unavailable
+# ===============================================
 echo "[TFTP] Checking iPXE boot files..."
 
 if [ ! -f /data/tftp/undionly.kpxe ]; then
-    echo "[TFTP] Downloading undionly.kpxe (BIOS bootloader)..."
+    echo "[TFTP] Downloading undionly.kpxe (standard BIOS bootloader)..."
     curl -L -o /data/tftp/undionly.kpxe https://boot.ipxe.org/undionly.kpxe 2>&1 || echo "[TFTP] Warning: Failed to download"
 fi
 
 if [ ! -f /data/tftp/ipxe.efi ]; then
-    echo "[TFTP] Downloading ipxe.efi (UEFI bootloader)..."
+    echo "[TFTP] Downloading ipxe.efi (standard UEFI bootloader)..."
     curl -L -o /data/tftp/ipxe.efi https://boot.ipxe.org/ipxe.efi 2>&1 || echo "[TFTP] Warning: Failed to download"
 fi
 
-# Create boot.ipxe - chainloader that directly loads menu with debugging
-# (No Stage 2 DHCP needed - loads boot-menu.ipxe directly from TFTP)
-echo "[TFTP] Generating boot.ipxe chainloader..."
-
-cat > /data/tftp/boot.ipxe << 'EOF'
-#!ipxe
-# Netboot Orchestrator - Boot Chain to Menu
-# Directly loads boot-menu.ipxe from TFTP
-
-clear
-echo ========================================
-echo Netboot Orchestrator
-echo Boot Menu Chainloader
-echo ========================================
-echo
-
-# Debug: Show detected variables
-echo Detected system information:
-echo - MAC Address: ${mac}
-echo - IP Address: ${ip}
-echo - Next Server (DHCP): ${next-server}
-echo - Gateway: ${gw}
-echo
-
-# Try to load boot menu
-echo Loading boot menu from TFTP server...
-echo
-
-# Attempt 1: Use DHCP-provided server (${next-server})
-isset ${next-server} && goto chain_menu || goto fallback_ip
-
-:chain_menu
-echo Attempting: tftp://${next-server}/boot-menu.ipxe
-chain tftp://${next-server}/boot-menu.ipxe
-echo Chain from DHCP-server failed!
-sleep 3
-goto fallback_ip
-
-:fallback_ip
-# Attempt 2: Use hardcoded server IP
-echo Attempting: tftp://192.168.1.50/boot-menu.ipxe
-chain tftp://192.168.1.50/boot-menu.ipxe
-echo Chain from hardcoded IP failed!
-sleep 5
-
-# Attempt 3: Try alternate TFTP server format (some iPXE versions need different syntax)
-echo Attempting: tftp://192.168.1.50:69/boot-menu.ipxe
-chain tftp://192.168.1.50:69/boot-menu.ipxe
-echo Failed to load boot menu from any server!
-echo
-echo Please verify:
-echo - TFTP server is running on 192.168.1.50
-echo - boot-menu.ipxe exists in TFTP root
-echo - Network routing allows 10.10.50.0/24 to reach 192.168.1.50
-echo
-sleep 10
-exit
-EOF
-
-echo "[TFTP] ✓ boot.ipxe chainloader created with debugging"
-
-# Also create boot-menu.ipxe with interactive menu options
-echo "[TFTP] Generating interactive boot menu (boot-menu.ipxe)..."
+# boot.ipxe is no longer needed - embedded script is in undionly.kpxe now
+# Create boot-menu.ipxe with interactive menu options
 
 cat > /data/tftp/boot-menu.ipxe << 'EOF'
 #!ipxe
@@ -212,10 +168,10 @@ sleep 2
 goto menu
 EOF
 
-echo "[TFTP] ✓ boot.ipxe menu created"
+echo "[TFTP] ✓ boot-menu.ipxe interactive menu created"
 echo "[TFTP] TFTP root: /data/tftp"
 echo "[TFTP] Available boot files:"
-ls -lh /data/tftp/*.{kpxe,efi,ipxe} 2>/dev/null || echo "[TFTP] Boot files downloading..."
+ls -lh /data/tftp/*.{kpxe,efi,ipxe} 2>/dev/null | grep -v "boot-menu\|boot\." || echo "[TFTP] No standard boot files found"
 
 echo "[TFTP] Starting dnsmasq DHCP/TFTP server..."
 exec dnsmasq -C /tftp/config/dnsmasq.conf -d
