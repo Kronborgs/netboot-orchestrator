@@ -7,53 +7,96 @@ echo "[TFTP] Starting dnsmasq TFTP server..."
 mkdir -p /data/tftp
 
 # ===============================================
-# Build custom undionly.kpxe with embedded script
+# Copy pre-built iPXE binaries from Docker image
 # ===============================================
-echo "[TFTP] Checking for custom undionly.kpxe build..."
+echo "[TFTP] Setting up iPXE bootloaders..."
 
-if [ -f "/tftp/scripts/embed.ipxe" ] && command -v gcc &>/dev/null; then
-    echo "[TFTP] Building custom undionly.kpxe with embedded boot script..."
-    bash /entrypoint-build.sh 2>&1 || (
-        echo "[TFTP] WARNING: Custom build failed, falling back to standard download"
-        rm -f /data/tftp/undionly.kpxe
-    )
-else
-    echo "[TFTP] Custom build dependencies not available, will download standard undionly.kpxe"
+if [ -f /tftp/undionly.kpxe ]; then
+    echo "[TFTP] ✓ Copying undionly.kpxe to TFTP volume..."
+    cp /tftp/undionly.kpxe /data/tftp/undionly.kpxe
+fi
+
+if [ -f /tftp/ipxe.efi ]; then
+    echo "[TFTP] ✓ Copying ipxe.efi to TFTP volume..."
+    cp /tftp/ipxe.efi /data/tftp/ipxe.efi
 fi
 
 # ===============================================
-# Download standard boot files if custom build unavailable
+# Create boot.ipxe - Auto-chainload script in TFTP root
 # ===============================================
-echo "[TFTP] Checking iPXE boot files..."
+# Standard undionly.kpxe will look for boot.ipxe in TFTP root as default
+cat > /data/tftp/boot.ipxe << 'EOF'
+#!ipxe
+# Netboot Orchestrator - Auto-chainload boot script
+# This runs automatically when undionly.kpxe boots
 
-if [ ! -f /data/tftp/undionly.kpxe ]; then
-    echo "[TFTP] Downloading undionly.kpxe (standard BIOS bootloader)..."
-    curl -L -o /data/tftp/undionly.kpxe https://boot.ipxe.org/undionly.kpxe 2>&1 || echo "[TFTP] Warning: Failed to download"
-fi
+echo
+echo ========================================
+echo Netboot Orchestrator - Chainload
+echo ========================================
+echo
 
-if [ ! -f /data/tftp/ipxe.efi ]; then
-    echo "[TFTP] Downloading ipxe.efi (standard UEFI bootloader)..."
-    curl -L -o /data/tftp/ipxe.efi https://boot.ipxe.org/ipxe.efi 2>&1 || echo "[TFTP] Warning: Failed to download"
-fi
+# Show boot info
+echo Device MAC: ${mac}
+echo Device IP: ${ip}
+echo Next Server: ${next-server}
+echo
 
-# boot.ipxe is no longer needed - embedded script is in undionly.kpxe now
-# Create SIMPLE boot-menu.ipxe (minimal for debugging)
+# Attempt to load boot menu from menu script
+echo Loading boot menu...
+echo
 
+# Try to load from DHCP-provided server (192.168.1.50)
+isset ${next-server} && goto chain_from_next_server || goto chain_hardcoded
+
+:chain_from_next_server
+echo Attempting to load from: ${next-server}
+chain tftp://${next-server}/boot-menu.ipxe && goto menu_loaded || goto chain_hardcoded
+
+:chain_hardcoded
+echo Attempting to load from hardcoded: 192.168.1.50
+chain tftp://192.168.1.50/boot-menu.ipxe && goto menu_loaded || goto fallback_shell
+
+:menu_loaded
+# Boot menu executed successfully
+goto end
+
+:fallback_shell
+echo
+echo WARNING: Failed to load boot menu!
+echo Dropping to iPXE shell for manual commands...
+echo Type 'help' for commands, 'reboot' to start over, 'exit' to retry boot menu
+echo
+
+shell
+
+# Retry boot menu
+chain tftp://${next-server}/boot-menu.ipxe || reboot
+
+:end
+EOF
+
+echo "[TFTP] ✓ Boot.ipxe auto-chainload script created"
+
+# ===============================================
+# Create boot-menu.ipxe - Main boot menu
+# ===============================================
 cat > /data/tftp/boot-menu.ipxe << 'EOF'
 #!ipxe
-# Netboot Orchestrator - Simple Test Menu
+# Netboot Orchestrator - Main Boot Menu
 
 clear
 echo ========================================
 echo Netboot Orchestrator
-echo ipxe Menu (Simple Version)
+echo Main Boot Menu
 echo ========================================
 echo
-echo Mac: ${mac}
-echo IP: ${ip}
-echo Server: ${next-server}
+echo Device MAC: ${mac}
+echo Device IP: ${ip}
+echo Next Server: ${next-server}
 echo
-echo [1] Shell
+echo [1] iPXE Shell
+echo [2] Boot Menu (reload)
 echo [0] Reboot
 echo
 
@@ -61,19 +104,43 @@ choose --timeout 60 --default 1 selected
 goto ${selected}
 
 :1
-echo Opening shell...
+echo
+echo Opening iPXE command shell...
+echo Type 'help' for commands or 'chain tftp://${next-server}/boot-menu.ipxe' to return
+echo
 shell
-reboot
+goto boot-menu.ipxe
+
+:2
+echo Reloading boot menu...
+chain tftp://${next-server}/boot-menu.ipxe
 
 :0
 reboot
 EOF
 
-echo "[TFTP] ✓ Simple boot-menu.ipxe created"
+echo "[TFTP] ✓ Main boot-menu.ipxe created"
+
+# ===============================================
+# Display TFTP configuration summary
+# ===============================================
+echo
+echo "[TFTP] ========================================" 
+echo "[TFTP] TFTP Configuration Ready"
+echo "[TFTP] ========================================"
 echo "[TFTP] TFTP root: /data/tftp"
 echo "[TFTP] Available boot files:"
-ls -lh /data/tftp/*.{kpxe,efi,ipxe} 2>/dev/null | grep -v "boot-menu\|boot\." || echo "[TFTP] No standard boot files found"
+ls -lh /data/tftp/*.{kpxe,efi,ipxe} 2>/dev/null | awk '{printf "[TFTP]   %-30s %6s\n", $9, $5}'
+echo "[TFTP]"
+echo "[TFTP] Boot flow:"
+echo "[TFTP]   1. Device DHCP → gets Option 67: undionly.kpxe"
+echo "[TFTP]   2. Device downloads undionly.kpxe from TFTP"
+echo "[TFTP]   3. undionly.kpxe auto-searches for boot.ipxe in TFTP root"
+echo "[TFTP]   4. boot.ipxe chainloads to boot-menu.ipxe"
+echo "[TFTP]   5. boot-menu.ipxe displays menu to user"
+echo "[TFTP]"
+echo "[TFTP] Starting dnsmasq..."
+echo
 
-echo "[TFTP] Starting dnsmasq DHCP/TFTP server..."
 exec dnsmasq -C /tftp/config/dnsmasq.conf -d
 
