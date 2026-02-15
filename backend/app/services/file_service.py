@@ -179,11 +179,18 @@ class FileService:
             }
     
     def list_os_installer_files(self) -> Dict[str, Any]:
-        """List all OS installer files in the directory."""
+        """List OS installer files that are bootable (ISO, IMG, BIN, EFI, etc.)."""
+        # Only show bootable file extensions
+        bootable_extensions = {
+            '.iso', '.img', '.bin', '.efi', '.exe',
+            '.vhd', '.vhdx', '.qcow2', '.vmdk', '.raw',
+            '.wim'  # Windows Imaging Format
+        }
+        
         files = []
         total_size = 0
         
-        logger.info(f"Listing OS installer files from: {self.os_installers_path}")
+        logger.info(f"Listing bootable OS installer files from: {self.os_installers_path}")
         logger.info(f"Path exists: {self.os_installers_path.exists()}")
         logger.info(f"Path is directory: {self.os_installers_path.is_dir()}")
         
@@ -199,18 +206,19 @@ class FileService:
                 }
             
             for file_path in self.os_installers_path.rglob("*"):
-                if file_path.is_file():
+                if file_path.is_file() and file_path.suffix.lower() in bootable_extensions:
                     size = file_path.stat().st_size
                     total_size += size
                     files.append({
                         "filename": file_path.name,
                         "path": str(file_path.relative_to(self.os_installers_path)),
                         "size_bytes": size,
+                        "size_display": self._format_bytes(size),
                         "created_at": datetime.fromtimestamp(file_path.stat().st_ctime).isoformat(),
                         "modified_at": datetime.fromtimestamp(file_path.stat().st_mtime).isoformat()
                     })
             
-            logger.info(f"Found {len(files)} files in {self.os_installers_path}")
+            logger.info(f"Found {len(files)} bootable files in {self.os_installers_path}")
         except Exception as e:
             logger.error(f"Error listing OS installer files: {str(e)}", exc_info=True)
             return {"error": str(e), "files": [], "total_size_bytes": 0}
