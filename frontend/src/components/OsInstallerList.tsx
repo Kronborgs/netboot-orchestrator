@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { apiFetch } from '../api/client';
-import { apiFetch } from '../api/client';
 
 interface OSFile {
   filename: string;
@@ -112,16 +111,18 @@ export const OsInstallerList: React.FC = () => {
     if (!confirm('Are you sure you want to delete this file?')) return;
 
     try {
-      const res = await fetch(
-        `/api/v1/os-installers/files/${filePath}`,
-        { method: 'DELETE' }
-      );
-      if (res.ok) {
-        fetchFiles();
-        fetchStorageInfo();
+      const res = await apiFetch(`/api/v1/os-installers/files/${filePath}`, {
+        method: 'DELETE'
+      });
+      if (!res.ok) {
+        alert(`Failed to delete file: ${res.statusText}`);
+        return;
       }
+      await fetchFiles();
+      await fetchStorageInfo();
     } catch (error) {
       console.error('Failed to delete file:', error);
+      alert('Error deleting file: ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
   };
 

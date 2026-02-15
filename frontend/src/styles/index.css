@@ -587,8 +587,6 @@ label {
 .align-center { align-items: center; }
 .gap-md { gap: var(--spacing-md); }
 
-}
-
 button:hover {
   background: var(--primary-dark);
 }
