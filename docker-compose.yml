@@ -14,6 +14,8 @@ services:
       - API_HOST=0.0.0.0
       - API_PORT=8000
       - DATA_PATH=/data
+      - OS_INSTALLERS_PATH=/isos
+      - IMAGES_PATH=/iscsi-images
       - LOG_LEVEL=INFO
     networks:
       - netboot
