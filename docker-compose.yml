@@ -50,8 +50,8 @@ services:
       - /mnt/user/isos:/isos
       - /mnt/isos/netbootimg/iscsi:/iscsi-images
     environment:
-      # Set this to your boot server IP address (the IP where clients can reach your Netboot Orchestrator)
-      # This IP will be used in iPXE boot.ipxe script as fallback if DHCP next-server is not available
+      # Boot server IP - devices will use this to reach TFTP/HTTP/API
+      # Set to your Unraid server IP. Devices can be on different VLAN if routing is configured
       - BOOT_SERVER_IP=192.168.1.50
     networks:
       - netboot
