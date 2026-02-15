@@ -1,100 +1,42 @@
 services:
-  api:
+  netboot-backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: netboot-api
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./data:/data
-      - /mnt/user/isos:/isos
-      - /mnt/isos/netbootimg/iscsi:/iscsi-images
-    environment:
-      - API_HOST=0.0.0.0
-      - API_PORT=8000
-      - DATA_PATH=/data
-      - OS_INSTALLERS_PATH=/isos
-      - IMAGES_PATH=/iscsi-images
-      - LOG_LEVEL=INFO
-    networks:
-      - netboot
-    restart: unless-stopped
-
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        VITE_API_URL: http://localhost:8000
-    container_name: netboot-frontend
-    ports:
-      - "30000:3000"
-    networks:
-      - netboot
-    environment:
-      - VITE_API_URL=http://localhost:8000
-    depends_on:
-      - api
-    restart: unless-stopped
-
-  tftp:
-    build:
-      context: ./netboot/tftp
-      dockerfile: Dockerfile
-    container_name: netboot-tftp
+      context: ./netboot
+      dockerfile: Dockerfile.backend
+    container_name: netboot-backend
     network_mode: host
     volumes:
       - ./data:/data
       - /mnt/user/isos:/isos
       - /mnt/isos/netbootimg/iscsi:/iscsi-images
     environment:
-      # Boot server IP - devices will use this to reach TFTP/HTTP/API
-      # Set to your Unraid server IP. Devices can be on different VLAN if routing is configured
+      # API Configuration
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - DATA_PATH=/data
+      - OS_INSTALLERS_PATH=/isos
+      - IMAGES_PATH=/iscsi-images
+      - LOG_LEVEL=INFO
+      # Boot server IP
       - BOOT_SERVER_IP=192.168.1.50
     privileged: true
     cap_add:
       - NET_ADMIN
       - NET_RAW
-    security_opt:
-      - apparmor:unconfined
-    restart: unless-stopped
-
-  http-server:
-    build:
-      context: ./netboot/http
-      dockerfile: Dockerfile
-    container_name: netboot-http
-    ports:
-      - "8080:80"
-    volumes:
-      - ./data:/data
-      - /mnt/user/isos:/isos
-      - /mnt/isos/netbootimg/iscsi:/iscsi-images
-    networks:
-      - netboot
-    restart: unless-stopped
-
-  iscsi-target:
-    build:
-      context: ./netboot/iscsi
-      dockerfile: Dockerfile
-    container_name: netboot-iscsi
-    ports:
-      - "3260:3260"
-    volumes:
-      - ./data:/data
-      - /mnt/isos/netbootimg/iscsi:/iscsi-images
-    networks:
-      - netboot
-    privileged: true
-    cap_add:
       - SYS_ADMIN
       - SYS_PTRACE
     security_opt:
       - apparmor:unconfined
     restart: unless-stopped
 
-networks:
-  netboot:
-    driver: bridge
+  netboot-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://localhost:8000
+    container_name: netboot-frontend
+    network_mode: host
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    restart: unless-stopped

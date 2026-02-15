@@ -1,0 +1,178 @@
+# Consolidated Backend: API + TFTP + HTTP + iSCSI
+# Runs all services on host network for direct network access
+FROM ubuntu:22.04
+
+RUN apt-get update && apt-get install -y \
+    # Python/FastAPI
+    python3 python3-pip \
+    # TFTP/DHCP
+    dnsmasq curl \
+    # HTTP Server
+    nginx \
+    # iSCSI Target
+    tgt \
+    # Utilities
+    net-tools iproute2 supervisor \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+RUN pip3 install fastapi uvicorn python-multipart
+
+# Create directories
+RUN mkdir -p /data /tftp /app/backend
+
+# Copy FastAPI backend code
+COPY ../backend /app/backend/
+WORKDIR /app/backend
+
+# Copy TFTP config and scripts
+COPY tftp/config /etc/dnsmasq.d/
+COPY tftp/scripts /tftp/scripts/
+
+# Copy HTTP/nginx config
+COPY http/conf /etc/nginx/conf.d/
+
+# Download iPXE bootloaders
+WORKDIR /data/tftp
+RUN echo "Downloading iPXE bootloaders..." && \
+    curl -L -o undionly.kpxe https://boot.ipxe.org/undionly.kpxe && \
+    curl -L -o ipxe.efi https://boot.ipxe.org/ipxe.efi && \
+    ls -lh undionly.kpxe ipxe.efi && \
+    echo "✓ iPXE binaries ready"
+
+# Create boot scripts
+RUN cat > /data/tftp/undionly.ipxe << 'EOF'
+#!ipxe
+echo
+echo ====================================================
+echo        Netboot Orchestrator - iPXE Stage 2
+echo ====================================================
+echo
+echo MAC Address: ${mac}
+echo IPv4 Address: ${ipv4}
+echo Gateway: ${gw}
+echo
+echo Initializing network with DHCP...
+dhcp
+echo
+echo Attempting HTTP chainload to API on 192.168.1.50:8000
+timeout 15 chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu || goto retry
+
+:retry
+echo
+echo WARNING: HTTP request failed - retrying with DHCP renewal...
+dhcp
+timeout 15 chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu || goto shell
+
+:shell
+echo
+echo ===============================================
+echo ERROR: Could not load boot menu
+echo ===============================================
+echo
+echo Cannot reach: http://192.168.1.50:8000/api/v1/boot/ipxe/menu
+echo
+shell
+reboot
+EOF
+
+# Create boot.ipxe
+RUN cat > /data/tftp/boot.ipxe << 'EOF'
+#!ipxe
+# Netboot Orchestrator Boot Script
+dhcp
+chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu
+EOF
+
+# Create boot-menu.ipxe
+RUN cat > /data/tftp/boot-menu.ipxe << 'EOF'
+#!ipxe
+clear
+echo ========================================
+echo Netboot Orchestrator
+echo Main Boot Menu
+echo ========================================
+echo
+echo Device MAC: ${mac}
+echo Device IP: ${ip}
+echo
+echo [1] iPXE Shell
+echo [2] Boot Menu (reload)
+echo [0] Reboot
+echo
+EOF
+
+# Create supervisor config for managing all services
+RUN cat > /etc/supervisor/conf.d/netboot.conf << 'EOF'
+[supervisord]
+nodaemon=true
+logfile=/dev/stdout
+loglevel=info
+
+[program:dnsmasq]
+command=/usr/sbin/dnsmasq -C /etc/dnsmasq.d/netboot.conf -d
+autostart=true
+autorestart=true
+stderr_logfile=/dev/stderr
+stdout_logfile=/dev/stdout
+
+[program:nginx]
+command=/usr/sbin/nginx -g "daemon off;"
+autostart=true
+autorestart=true
+stderr_logfile=/dev/stderr
+stdout_logfile=/dev/stdout
+
+[program:tgtd]
+command=/usr/sbin/tgtd -f
+autostart=true
+autorestart=true
+stderr_logfile=/dev/stderr
+stdout_logfile=/dev/stdout
+
+[program:fastapi]
+command=python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+directory=/app/backend
+autostart=true
+autorestart=true
+stderr_logfile=/dev/stderr
+stdout_logfile=/dev/stdout
+EOF
+
+# Rename dnsmasq config to standard location
+RUN cp /tftp/config/dnsmasq.conf /etc/dnsmasq.d/netboot.conf || \
+    cat > /etc/dnsmasq.d/netboot.conf << 'EOF'
+port=69
+enable-tftp
+tftp-root=/data/tftp
+tftp-no-blocksize
+tftp-max=100
+user=nobody
+group=nogroup
+log-facility=/dev/stdout
+log-queries
+
+# DHCP Server Configuration
+dhcp-range=192.168.1.100,192.168.1.200,255.255.255.0,24h
+dhcp-range=10.10.50.100,10.10.50.200,255.255.255.0,24h
+
+# PXE/UEFI Boot Detection
+dhcp-match=set:bios,option:client-arch,0
+dhcp-match=set:efi32,option:client-arch,6
+dhcp-match=set:efibc,option:client-arch,7
+dhcp-match=set:efi64,option:client-arch,9
+dhcp-match=set:arm64,option:client-arch,0x0b
+dhcp-match=set:ipxe,175
+
+# Boot File Delivery
+dhcp-boot=tag:ipxe,boot.ipxe
+dhcp-boot=tag:bios,undionly.kpxe
+dhcp-boot=tag:efi64,ipxe.efi
+dhcp-boot=tag:efi32,ipxe.efi
+dhcp-boot=tag:efibc,ipxe.efi
+EOF
+
+EXPOSE 69/udp 67/udp 8000 8080 3260
+
+ENTRYPOINT ["/usr/bin/supervisord"]
+CMD ["-c", "/etc/supervisor/supervisord.conf"]
