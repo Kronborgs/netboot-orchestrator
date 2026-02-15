@@ -9,11 +9,20 @@ function App() {
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [version, setVersion] = useState<string>('');
 
   useEffect(() => {
     // Dark mode is always on (default)
     document.documentElement.style.colorScheme = 'dark';
   }, [isDarkMode]);
+
+  useEffect(() => {
+    // Fetch version from API
+    fetch('http://localhost:8000/api/v1/version')
+      .then(res => res.json())
+      .then(data => setVersion(data.version || ''))
+      .catch(() => setVersion('2026-02-15-V1'));
+  }, []);
 
   return (
     <div className="app">

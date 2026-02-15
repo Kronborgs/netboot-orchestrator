@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Query
 from typing import List
+from pathlib import Path
 from ..models import (
     Device, Image, KernelSet, OSInstaller, DeviceType,
     UnknownDevice, DeviceAssignment, OSInstallerFile
@@ -11,6 +12,17 @@ import os
 router = APIRouter(prefix="/api/v1", tags=["v1"])
 
 
+def get_version() -> str:
+    """Read version from VERSION file or return default."""
+    try:
+        version_file = Path(__file__).parent.parent.parent.parent / "VERSION"
+        if version_file.exists():
+            return version_file.read_text().strip()
+    except Exception:
+        pass
+    return "2026-02-15-V1"
+
+
 def get_db() -> Database:
     return Database()
 
@@ -20,6 +32,17 @@ def get_file_service() -> FileService:
         os_installers_path=os.getenv("OS_INSTALLERS_PATH", "/data/os-installers"),
         images_path=os.getenv("IMAGES_PATH", "/data/images")
     )
+
+
+# ==================== VERSION ENDPOINT ====================
+
+@router.get("/version")
+async def get_app_version():
+    """Get application version."""
+    return {
+        "version": get_version(),
+        "name": "Netboot Orchestrator"
+    }
 
 
 # ==================== DEVICE ENDPOINTS ====================
