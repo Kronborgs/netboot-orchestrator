@@ -231,30 +231,3 @@ export const DeviceList: React.FC = () => {
     </div>
   );
 };
-
-              <th>Name</th>
-              <th>Type</th>
-              <th>Status</th>
-              <th>Image</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {devices.map((device) => (
-              <tr key={device.mac}>
-                <td>{device.mac}</td>
-                <td>{device.name}</td>
-                <td>{device.device_type}</td>
-                <td>{device.enabled ? 'Enabled' : 'Disabled'}</td>
-                <td>{device.image_id || '—'}</td>
-                <td>
-                  <button onClick={() => deleteDevice(device.mac)}>Delete</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
-  );
-};
