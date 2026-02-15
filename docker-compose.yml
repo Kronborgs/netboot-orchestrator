@@ -51,6 +51,12 @@ services:
       - /mnt/isos/netbootimg/iscsi:/iscsi-images
     networks:
       - netboot
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    security_opt:
+      - apparmor:unconfined
     restart: unless-stopped
 
   http-server:
