@@ -43,6 +43,48 @@ class OSInstaller(BaseModel):
     device_type: DeviceType
 
 
+class OSInstallerFile(BaseModel):
+    """Represents an OS installer file in the filesystem."""
+    filename: str
+    path: str
+    size_bytes: int
+    device_type: DeviceType
+    created_at: str
+
+
+class OSInstallerDirectory(BaseModel):
+    """Represents available OS installer directory contents."""
+    path: str
+    files: List[OSInstallerFile]
+    total_size_bytes: int
+
+
+class FileUploadProgress(BaseModel):
+    """Track file upload progress."""
+    filename: str
+    progress_percent: int
+    uploaded_bytes: int
+    total_bytes: int
+    status: str  # "uploading", "completed", "failed"
+
+
+class UnknownDevice(BaseModel):
+    """Represents a device detected during boot but not registered."""
+    mac: str
+    device_type: Optional[DeviceType] = None
+    boot_time: str
+    status: str  # "unknown", "registered", "assigned"
+
+
+class DeviceAssignment(BaseModel):
+    """Assignment of iSCSI image and OS to a device."""
+    mac: str
+    image_id: Optional[str] = None
+    os_installer: Optional[str] = None
+    installation_target: str  # "iscsi" or "local"
+    status: str  # "pending", "installing", "completed"
+
+
 class BootCheckIn(BaseModel):
     mac: str
     device_type: DeviceType

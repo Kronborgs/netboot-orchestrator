@@ -1,0 +1,39 @@
+services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: netboot-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data
+    environment:
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - DATA_PATH=/data
+      - LOG_LEVEL=INFO
+    networks:
+      - netboot
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://localhost:8000
+    container_name: netboot-frontend
+    ports:
+      - "30000:3000"
+    networks:
+      - netboot
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      - api
+    restart: unless-stopped
+
+networks:
+  netboot:
+    driver: bridge

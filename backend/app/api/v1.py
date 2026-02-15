@@ -1,7 +1,12 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Query
 from typing import List
-from ..models import Device, Image, KernelSet, OSInstaller, DeviceType
+from ..models import (
+    Device, Image, KernelSet, OSInstaller, DeviceType,
+    UnknownDevice, DeviceAssignment, OSInstallerFile
+)
 from ..database import Database
+from ..services.file_service import FileService
+import os
 
 router = APIRouter(prefix="/api/v1", tags=["v1"])
 
@@ -9,6 +14,15 @@ router = APIRouter(prefix="/api/v1", tags=["v1"])
 def get_db() -> Database:
     return Database()
 
+
+def get_file_service() -> FileService:
+    return FileService(
+        os_installers_path=os.getenv("OS_INSTALLERS_PATH", "/data/os-installers"),
+        images_path=os.getenv("IMAGES_PATH", "/data/images")
+    )
+
+
+# ==================== DEVICE ENDPOINTS ====================
 
 @router.get("/devices", response_model=List[dict])
 async def list_devices(db: Database = Depends(get_db)):
@@ -51,6 +65,8 @@ async def delete_device(mac: str, db: Database = Depends(get_db)):
     return {"status": "deleted"}
 
 
+# ==================== IMAGE ENDPOINTS ====================
+
 @router.get("/images", response_model=List[dict])
 async def list_images(db: Database = Depends(get_db)):
     """List all iSCSI images."""
@@ -75,9 +91,35 @@ async def get_image(image_id: str, db: Database = Depends(get_db)):
     return image
 
 
+@router.put("/images/{image_id}", response_model=dict)
+async def update_image(image_id: str, image: Image, db: Database = Depends(get_db)):
+    """Update image details."""
+    existing = db.get_image(image_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Image not found")
+    return db.update_image(image_id, image.dict())
+
+
+@router.delete("/images/{image_id}")
+async def delete_image(image_id: str, db: Database = Depends(get_db)):
+    """Delete an image."""
+    image = db.get_image(image_id)
+    if not image:
+        raise HTTPException(status_code=404, detail="Image not found")
+    
+    # Unassign from any device
+    assigned_to = image.get("assigned_to")
+    if assigned_to:
+        db.update_device(assigned_to, {"image_id": None})
+    
+    if not db.delete_image(image_id):
+        raise HTTPException(status_code=500, detail="Failed to delete image")
+    return {"status": "deleted"}
+
+
 @router.put("/images/{image_id}/assign")
-async def assign_image(image_id: str, mac: str, db: Database = Depends(get_db)):
-    """Assign image to a device."""
+async def assign_image(image_id: str, mac: str = Query(...), db: Database = Depends(get_db)):
+    """Assign image to a device by MAC address."""
     image = db.get_image(image_id)
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
@@ -92,7 +134,7 @@ async def assign_image(image_id: str, mac: str, db: Database = Depends(get_db)):
     # Update device image reference
     db.update_device(mac, {"image_id": image_id})
     
-    return {"status": "assigned"}
+    return {"status": "assigned", "image_id": image_id, "mac": mac}
 
 
 @router.put("/images/{image_id}/unassign")
@@ -107,10 +149,255 @@ async def unassign_image(image_id: str, db: Database = Depends(get_db)):
         db.update_device(assigned_to, {"image_id": None})
     
     db.update_image(image_id, {"assigned_to": None})
-    return {"status": "unassigned"}
+    return {"status": "unassigned", "image_id": image_id}
 
 
-@router.get("/kernel-sets", response_model=dict)
+# ==================== OS INSTALLER ENDPOINTS ====================
+
+@router.get("/os-installers/files")
+async def list_os_installer_files(file_service: FileService = Depends(get_file_service)):
+    """List all OS installer files in the directory."""
+    result = file_service.list_os_installer_files()
+    if "error" in result:
+        raise HTTPException(status_code=500, detail=result["error"])
+    return result
+
+
+@router.get("/os-installers/files/{file_path:path}")
+async def get_os_installer_file_info(
+    file_path: str,
+    file_service: FileService = Depends(get_file_service)
+):
+    """Get information about a specific OS installer file."""
+    result = file_service.get_file_info(file_path, is_image=False)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+@router.delete("/os-installers/files/{file_path:path}")
+async def delete_os_installer_file(
+    file_path: str,
+    file_service: FileService = Depends(get_file_service)
+):
+    """Delete an OS installer file."""
+    result = file_service.delete_file(file_path, is_image=False)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Failed to delete file"))
+    return result
+
+
+@router.post("/os-installers/upload")
+async def upload_os_installer(
+    file: UploadFile = File(...),
+    file_service: FileService = Depends(get_file_service)
+):
+    """Upload an OS installer file."""
+    try:
+        import shutil
+        from pathlib import Path
+        
+        file_service.os_installers_path.mkdir(parents=True, exist_ok=True)
+        file_path = file_service.os_installers_path / file.filename
+        
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        stat = file_path.stat()
+        return {
+            "success": True,
+            "filename": file.filename,
+            "size_bytes": stat.st_size,
+            "created_at": os.path.getmtime(file_path)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/os-installers/metadata", response_model=List[dict])
+async def list_os_installers_metadata(db: Database = Depends(get_db)):
+    """List OS installer metadata from database."""
+    return db.get_all_os_installers()
+
+
+@router.post("/os-installers/metadata", response_model=dict)
+async def create_os_installer_metadata(installer: OSInstaller, db: Database = Depends(get_db)):
+    """Create OS installer metadata."""
+    return db.create_os_installer(installer.name, installer.dict())
+
+
+# ==================== IMAGE FILES ENDPOINTS ====================
+
+@router.get("/images/files")
+async def list_image_files(file_service: FileService = Depends(get_file_service)):
+    """List all iSCSI disk image files."""
+    result = file_service.list_images()
+    if "error" in result:
+        raise HTTPException(status_code=500, detail=result["error"])
+    return result
+
+
+@router.post("/images/create-directory")
+async def create_image_directory(
+    image_name: str = Query(...),
+    file_service: FileService = Depends(get_file_service)
+):
+    """Create a new directory for an iSCSI image."""
+    result = file_service.create_image_directory(image_name)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Failed to create directory"))
+    return result
+
+
+@router.post("/images/upload")
+async def upload_image_file(
+    image_name: str = Query(...),
+    file: UploadFile = File(...),
+    file_service: FileService = Depends(get_file_service)
+):
+    """Upload an iSCSI disk image file."""
+    try:
+        import shutil
+        
+        image_dir = file_service.images_path / image_name
+        image_dir.mkdir(parents=True, exist_ok=True)
+        
+        file_path = image_dir / file.filename
+        
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        stat = file_path.stat()
+        return {
+            "success": True,
+            "filename": file.filename,
+            "image_name": image_name,
+            "size_bytes": stat.st_size,
+            "size_gb": round(stat.st_size / (1024**3), 2),
+            "created_at": os.path.getmtime(file_path)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ==================== UNKNOWN DEVICE ENDPOINTS ====================
+
+@router.get("/unknown-devices", response_model=List[dict])
+async def list_unknown_devices(db: Database = Depends(get_db)):
+    """List all unknown devices that have booted."""
+    return db.get_all_unknown_devices()
+
+
+@router.post("/unknown-devices/register", response_model=dict)
+async def register_unknown_device(
+    mac: str = Query(...),
+    device_type: DeviceType = Query(...),
+    db: Database = Depends(get_db)
+):
+    """Register an unknown device and create a device profile."""
+    # Check if already known
+    device = db.get_device(mac)
+    if device:
+        return {"status": "already_registered", "device": device}
+    
+    # Create new device
+    new_device = Device(
+        mac=mac,
+        device_type=device_type,
+        name=f"{device_type.value.upper()}-{mac[-6:]}",
+        enabled=True
+    )
+    
+    created = db.create_device(mac, new_device.dict())
+    
+    # Remove from unknown devices
+    db.remove_unknown_device(mac)
+    
+    return {"status": "registered", "device": created}
+
+
+@router.post("/unknown-devices/record")
+async def record_unknown_device(
+    mac: str = Query(...),
+    device_type: DeviceType = Query(None),
+    db: Database = Depends(get_db)
+):
+    """Record a device that booted but is unknown."""
+    return db.record_unknown_device(mac, device_type)
+
+
+@router.get("/unknown-devices/{mac}")
+async def get_unknown_device(mac: str, db: Database = Depends(get_db)):
+    """Get unknown device details."""
+    device = db.get_unknown_device(mac)
+    if not device:
+        raise HTTPException(status_code=404, detail="Unknown device not found")
+    return device
+
+
+@router.delete("/unknown-devices/{mac}")
+async def remove_unknown_device(mac: str, db: Database = Depends(get_db)):
+    """Remove an unknown device from the list."""
+    if not db.remove_unknown_device(mac):
+        raise HTTPException(status_code=404, detail="Unknown device not found")
+    return {"status": "removed"}
+
+
+# ==================== DEVICE ASSIGNMENT ENDPOINTS ====================
+
+@router.post("/device-assignment")
+async def create_device_assignment(
+    assignment: DeviceAssignment,
+    db: Database = Depends(get_db)
+):
+    """Create or update device assignment (iSCSI image + OS installer)."""
+    device = db.get_device(assignment.mac)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    # Update device with assignment
+    update_data = {
+        "image_id": assignment.image_id,
+        "installation_target": assignment.installation_target
+    }
+    
+    if assignment.image_id:
+        image = db.get_image(assignment.image_id)
+        if not image:
+            raise HTTPException(status_code=404, detail="Image not found")
+        # Assign image to device
+        db.update_image(assignment.image_id, {"assigned_to": assignment.mac})
+    
+    updated = db.update_device(assignment.mac, update_data)
+    return {"status": "assigned", "device": updated}
+
+
+@router.get("/device-assignment/{mac}")
+async def get_device_assignment(mac: str, db: Database = Depends(get_db)):
+    """Get device assignment details."""
+    device = db.get_device(mac)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    assignment = {
+        "mac": mac,
+        "image_id": device.get("image_id"),
+        "installation_target": device.get("installation_target", "iscsi"),
+        "device_type": device.get("device_type"),
+        "name": device.get("name")
+    }
+    
+    if device.get("image_id"):
+        image = db.get_image(device["image_id"])
+        if image:
+            assignment["image_details"] = image
+    
+    return assignment
+
+
+# ==================== KERNEL SETS ENDPOINTS ====================
+
+@router.get("/kernel-sets")
 async def list_kernel_sets(db: Database = Depends(get_db)):
     """List all kernel sets."""
     return db.get_all_kernel_sets()
@@ -122,13 +409,10 @@ async def create_kernel_set(kernel_set: KernelSet, db: Database = Depends(get_db
     return db.create_kernel_set(kernel_set.name, kernel_set.dict())
 
 
-@router.get("/os-installers", response_model=List[dict])
-async def list_os_installers(db: Database = Depends(get_db)):
-    """List all OS installers."""
-    return db.get_all_os_installers()
+# ==================== STORAGE ENDPOINTS ====================
 
+@router.get("/storage/info")
+async def get_storage_info(file_service: FileService = Depends(get_file_service)):
+    """Get storage usage information."""
+    return file_service.get_storage_info()
 
-@router.post("/os-installers", response_model=dict)
-async def create_os_installer(installer: OSInstaller, db: Database = Depends(get_db)):
-    """Create OS installer metadata."""
-    return db.create_os_installer(installer.name, installer.dict())

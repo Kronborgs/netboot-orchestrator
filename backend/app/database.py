@@ -14,6 +14,7 @@ class Database:
         self.images_file = self.data_path / "images.json"
         self.os_file = self.data_path / "os.json"
         self.settings_file = self.data_path / "settings.json"
+        self.unknown_devices_file = self.data_path / "unknown_devices.json"
         
         # Initialize files if they don't exist
         self._init_files()
@@ -28,6 +29,8 @@ class Database:
             self._write_json(self.os_file, {})
         if not self.settings_file.exists():
             self._write_json(self.settings_file, {"kernel_sets": {"default": {"kernel_url": "", "initramfs_url": ""}}})
+        if not self.unknown_devices_file.exists():
+            self._write_json(self.unknown_devices_file, {})
     
     def _read_json(self, file_path: Path) -> Dict[str, Any]:
         """Read JSON file safely."""
@@ -137,3 +140,35 @@ class Database:
         settings["kernel_sets"][name] = kernel_data
         self._write_json(self.settings_file, settings)
         return settings["kernel_sets"][name]
+    
+    # Unknown device operations
+    def record_unknown_device(self, mac: str, device_type: str = None) -> Dict:
+        """Record a device that booted but is not registered."""
+        unknown = self._read_json(self.unknown_devices_file)
+        unknown[mac] = {
+            "mac": mac,
+            "device_type": device_type,
+            "boot_time": datetime.now().isoformat(),
+            "status": "unknown"
+        }
+        self._write_json(self.unknown_devices_file, unknown)
+        return unknown[mac]
+    
+    def get_unknown_device(self, mac: str) -> Optional[Dict]:
+        """Get an unknown device by MAC address."""
+        unknown = self._read_json(self.unknown_devices_file)
+        return unknown.get(mac)
+    
+    def get_all_unknown_devices(self) -> List[Dict]:
+        """List all unknown devices."""
+        unknown = self._read_json(self.unknown_devices_file)
+        return list(unknown.values())
+    
+    def remove_unknown_device(self, mac: str) -> bool:
+        """Remove an unknown device from the list."""
+        unknown = self._read_json(self.unknown_devices_file)
+        if mac in unknown:
+            del unknown[mac]
+            self._write_json(self.unknown_devices_file, unknown)
+            return True
+        return False
