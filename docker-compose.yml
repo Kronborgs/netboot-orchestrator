@@ -43,8 +43,7 @@ services:
       context: ./netboot/tftp
       dockerfile: Dockerfile
     container_name: netboot-tftp
-    ports:
-      - "69:69/udp"
+    network_mode: host
     volumes:
       - ./data:/data
       - /mnt/user/isos:/isos
@@ -53,8 +52,6 @@ services:
       # Boot server IP - devices will use this to reach TFTP/HTTP/API
       # Set to your Unraid server IP. Devices can be on different VLAN if routing is configured
       - BOOT_SERVER_IP=192.168.1.50
-    networks:
-      - netboot
     privileged: true
     cap_add:
       - NET_ADMIN
