@@ -467,8 +467,8 @@ async def get_storage_info(file_service: FileService = Depends(get_file_service)
 @router.get("/boot/ipxe/menu")
 async def boot_ipxe_menu(file_service: FileService = Depends(get_file_service)):
     """
-    Generate iPXE boot menu script.
-    This is served to iPXE-enabled clients via DHCP boot chain.
+    Generate iPXE boot menu script with available OS installers.
+    This endpoint is called by iPXE clients to get the boot menu.
     """
     # Get list of available OS installers
     try:
@@ -476,18 +476,11 @@ async def boot_ipxe_menu(file_service: FileService = Depends(get_file_service)):
     except Exception:
         installers = []
     
-    # Build iPXE menu
-    menu_items = []
-    for installer in installers:
-        # Create safe label (max 60 chars, alphanumeric + spaces)
-        label = installer['filename'][:60]
-        # Add menu item: label -> download URL
-        url = f"http://api:8000/api/v1/os-installers/download/{installer['path']}"
-        menu_items.append(f"  item {label} {label}")
-    
-    # Build the menu script
+    # Build iPXE menu script
     menu_script = """#!ipxe
-# Netboot Orchestrator iPXE Boot Menu
+# Netboot Orchestrator OS Installation Menu
+# Server: ${next-server}
+# Time: 60 second timeout for menu selection
 
 set color_header 0x0000ff
 set color_item 0x00ffff
@@ -495,36 +488,62 @@ set color_selected 0xffffff
 
 :menu
 clear
-cpuid --ext -- x86_64 && set FIRMWARE efi || set FIRMWARE bios
 echo
 echo ====================================
-echo  🚀 Netboot Orchestrator Menu
+echo  🚀 Netboot Orchestrator
+echo  OS Installation Menu
 echo ====================================
-echo  System: ${FIRMWARE}
-echo  MAC: ${net0/mac}
-echo  IP: ${net0/ip}
 echo
-choose --timeout 15 --default exit selected """ + " || goto exit\n\n"
+echo  Device MAC: ${net0/mac}
+echo  Device IP:  ${net0/ip}
+echo  Server IP:  ${next-server}
+echo  Firmware:   ${FIRMWARE}
+echo
+"""
     
-    # Add menu items
     if installers:
-        for installer in installers:
-            label = installer['filename'][:60]
-            url = f"http://api:8000/api/v1/os-installers/download/{installer['path']}"
-            menu_script += f":{label}\n"
-            menu_script += f"echo Downloading {installer['filename']}...\n"
-            menu_script += f"imgdownload {url} || goto menu\n"
-            menu_script += f"boot\n\n"
-    else:
-        menu_script += """echo "No OS installers available!"
+        menu_script += """echo  Available OS Installers:
+echo
+"""
+        for idx, installer in enumerate(installers, start=1):
+            # Safely format installer name (max 50 chars)
+            name = installer['filename'][:50]
+            size = installer.get('size_display', 'Unknown')
+            menu_script += f"echo  {idx}) {name} ({size})\n"
+        
+        menu_script += """echo
+echo  Submit your choice or press Enter for default (1)
+echo
+choose --timeout 60 --default 1 selected || goto menu
+
+"""
+        # Add menu items for each installer
+        for idx, installer in enumerate(installers, start=1):
+            name = installer['filename'][:50]
+            path = installer['path']
+            url = f"http://${{next-server}}:8000/api/v1/os-installers/download/{path}"
+            
+            menu_script += f""":{idx}
+echo
+echo Booting: {name}
+echo URL: {url}
+echo
+imgdownload {url} boot.img || goto menu
+boot
 sleep 5
 goto menu
 
 """
+    else:
+        menu_script += """echo  No OS installers available!
+echo
+echo  Please upload OS installers to the Netboot Orchestrator
+echo
+"""
     
     menu_script += """:exit
 echo
-echo Exiting iPXE boot menu...
+echo Exiting boot menu...
 sleep 2
 """
     
