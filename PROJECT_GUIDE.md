@@ -90,20 +90,24 @@ Cross-VLAN Routing: Via Unifi controller/switch
 - [x] **Boot script syntax** - fixed line breaks, single-line commands (commit a48527e)
 - [x] **DHCP server config** - ranges defined, log-dhcp enabled (commits f615ceb, 8bf9471, 808890a)
 
-### 🔄 In Progress - **BLOCKING ISSUE**
-- **x86/x64 Stage 2 Failure** (Current problem)
-  - ✅ Stage 1: undionly.kpxe downloads successfully (TFTP confirmed)
-  - ✅ Stage 1.5: iPXE firmware loads (HyperV console shows boot output)
-  - ❌ Stage 2: Device fails after DHCP stage
-  - **Error Symptoms:**
-    - HyperV VM: Shows network configuration, then fails with "Network unreachable"
-    - dnsmasq logs: No DHCP activity logged (suspicious - should see DHCP Discover/Offer)
-    - Logs show: "TFTP Aborted" from device (timeout after file download)
-  - **Diagnostic Status:**
-    - dnsmasq DHCP ranges not appearing in logs (configured but not activating)
-    - Cross-VLAN DHCP relay on Unifi **likely not configured**
-    - HTTP chainload not reached (blocked at DHCP stage)
-  - **Next Step:** Need actual error message from VM console to diagnose further
+### 🔄 In Progress - **TFTP TRANSFER ABORT ISSUE (NEW FIX APPLIED)**
+- **x86/x64 PXE Boot - TFTP Transfer Failures** (Current problem)
+  - ✅ Stage 1: undionly.kpxe downloads (TFTP transmit starts)
+  - ❌ Transfers abort: dnsmasq logs "TFTP Aborted" from device
+  - **CRITICAL DISCOVERY** (Feb 15 14:35 UTC): **SAME-VLAN TEST FAILS TOO!**
+    - Same-VLAN device (192.168.1.73) also shows TFTP Aborted errors
+    - This proves it's NOT a cross-VLAN routing issue
+    - Issue is with TFTP transfer itself or bootloader handling
+  - **Root Cause Analysis:**
+    - TFTP blocksize extension negotiation may be causing issues
+    - Device tries to negotiate larger block size → dnsmasq doesn't handle it → ERROR 0 abort
+    - Standard TFTP is 512-byte blocks; some devices negotiate 1024-1448 bytes
+  - **Solution Applied** (commit dd62807):
+    - Added `tftp-no-blocksize` → disables blocksize extension, forces 512-byte blocks
+    - Added `tftp-single-port` → uses single TFTP port, helps with firewall/NAT
+    - Rebuilt Docker image with new TFTP options
+    - dnsmasq logs now show: "TFTP root is /data/tftp  single port mode"
+  - **Next Step:** Test boot with new configuration to see if transfers complete
 
 ### ⏳ Pending
 - [ ] **Stage 2 Network Fix** - determine root cause and implement solution
@@ -205,6 +209,10 @@ curl http://192.168.1.50:8000/api/v1/boot/ipxe/menu
 
 | Commit | Date | Issue | Fix |
 |--------|------|-------|-----|
+| `dd62807` | Feb 15 | TFTP transfer aborts on all devices (cross-VLAN AND same-VLAN) | Added `tftp-no-blocksize` and `tftp-single-port` options - disables blocksize negotiation, uses standard 512-byte blocks |
+| `5721ffd` | Feb 15 | dnsmasq DHCP config had syntax errors | Removed invalid dhcp-option lines (3rd removal: router syntax) |
+| `a7a141e` | Feb 15 | dnsmasq parsing error "bad dhcp-option at line X" | Removed DNS option and log-dhcp |
+| `72acecd` | Feb 15 | dnsmasq "bad dhcp-option" lease-time syntax | Fixed invalid syntax |
 | `a48527e` | Feb 15 | iPXE script syntax error | Fixed line breaks in undionly.ipxe - commands were split across lines |
 | `68e228f` | Feb 15 | **undionly.kpxe not auto-executing** | **CRITICAL FIX**: Create undionly.ipxe - the script that undionly.kpxe auto-executes |
 | `c8b058d` | Feb 15 | HTTP chainload timeout | Added 10s timeout, DHCP retry, $next-server variable, better diagnostics |
