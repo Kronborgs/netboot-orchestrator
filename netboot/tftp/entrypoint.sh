@@ -27,8 +27,9 @@ fi
 # Standard undionly.kpxe will look for boot.ipxe in TFTP root as default
 cat > /data/tftp/boot.ipxe << 'EOF'
 #!ipxe
-# Netboot Orchestrator - Auto-chainload boot script
+# Netboot Orchestrator - Auto-chainload boot script via HTTP
 # This runs automatically when undionly.kpxe boots
+# Uses HTTP instead of TFTP for better multi-VLAN routing reliability
 
 echo
 echo ========================================
@@ -39,41 +40,41 @@ echo
 # Show boot info
 echo Device MAC: ${mac}
 echo Device IP: ${ip}
-echo Next Server: ${next-server}
 echo
 
-# Attempt to load boot menu from menu script
-echo Loading boot menu...
+# Attempt to load boot menu from API via HTTP
+echo Loading boot menu via HTTP...
+echo Chainload: http://192.168.1.50:8000/api/v1/boot/ipxe/menu
 echo
 
-# Try to load from DHCP-provided server (192.168.1.50)
-isset ${next-server} && goto chain_from_next_server || goto chain_hardcoded
-
-:chain_from_next_server
-echo Attempting to load from: ${next-server}
-chain tftp://${next-server}/boot-menu.ipxe && goto menu_loaded || goto chain_hardcoded
-
-:chain_hardcoded
-echo Attempting to load from hardcoded: 192.168.1.50
-chain tftp://192.168.1.50/boot-menu.ipxe && goto menu_loaded || goto fallback_shell
-
-:menu_loaded
-# Boot menu executed successfully
-goto end
+chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu && goto menu_loaded || goto fallback_shell
 
 :fallback_shell
 echo
-echo WARNING: Failed to load boot menu!
-echo Dropping to iPXE shell for manual commands...
-echo Type 'help' for commands, 'reboot' to start over, 'exit' to retry boot menu
+echo ========================================
+echo WARNING: Failed to load boot menu
+echo ========================================
+echo
+echo Possible causes:
+echo   - HTTP server on 192.168.1.50:8000 not accessible
+echo   - Multi-VLAN routing issue blocking HTTP
+echo   - API endpoint not responding
+echo
+echo Dropping to iPXE shell for manual testing...
+echo
+echo Test commands:
+echo   chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu
+echo   chain tftp://192.168.1.50/boot-menu.ipxe
+echo   dhcp (reinit network)
+echo
+echo Type 'help' for all commands
 echo
 
 shell
+reboot
 
-# Retry boot menu
-chain tftp://${next-server}/boot-menu.ipxe || reboot
-
-:end
+:menu_loaded
+# Boot menu loaded successfully
 EOF
 
 echo "[TFTP] ✓ Boot.ipxe auto-chainload script created"
