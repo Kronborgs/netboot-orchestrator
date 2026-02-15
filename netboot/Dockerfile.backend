@@ -41,7 +41,8 @@ RUN echo "Downloading iPXE bootloaders..." && \
     echo "✓ iPXE binaries ready"
 
 # Create boot scripts
-RUN cat > /data/tftp/undionly.ipxe << 'EOF'
+RUN mkdir -p /data/tftp && \
+    cat > /data/tftp/undionly.ipxe << 'EOFIPXE' && \
 #!ipxe
 echo
 echo ====================================================
@@ -74,18 +75,13 @@ echo Cannot reach: http://192.168.1.50:8000/api/v1/boot/ipxe/menu
 echo
 shell
 reboot
-EOF
-
-# Create boot.ipxe
-RUN cat > /data/tftp/boot.ipxe << 'EOF'
+EOFIPXE
+    cat > /data/tftp/boot.ipxe << 'EOFBOOT' && \
 #!ipxe
-# Netboot Orchestrator Boot Script
 dhcp
 chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu
-EOF
-
-# Create boot-menu.ipxe
-RUN cat > /data/tftp/boot-menu.ipxe << 'EOF'
+EOFBOOT
+    cat > /data/tftp/boot-menu.ipxe << 'EOFMENU'
 #!ipxe
 clear
 echo ========================================
@@ -100,10 +96,11 @@ echo [1] iPXE Shell
 echo [2] Boot Menu (reload)
 echo [0] Reboot
 echo
-EOF
+EOFMENU
 
 # Create supervisor config for managing all services
-RUN cat > /etc/supervisor/conf.d/netboot.conf << 'EOF'
+RUN mkdir -p /etc/supervisor/conf.d && \
+    cat > /etc/supervisor/conf.d/netboot.conf << 'EOFSUPERVISOR'
 [supervisord]
 nodaemon=true
 logfile=/dev/stdout
@@ -137,11 +134,11 @@ autostart=true
 autorestart=true
 stderr_logfile=/dev/stderr
 stdout_logfile=/dev/stdout
-EOF
+EOFSUPERVISOR
 
 # Rename dnsmasq config to standard location
-RUN cp /tftp/config/dnsmasq.conf /etc/dnsmasq.d/netboot.conf || \
-    cat > /etc/dnsmasq.d/netboot.conf << 'EOF'
+RUN mkdir -p /etc/dnsmasq.d && \
+    cat > /etc/dnsmasq.d/netboot.conf << 'EOFDNSMASQ'
 port=69
 enable-tftp
 tftp-root=/data/tftp
@@ -170,7 +167,7 @@ dhcp-boot=tag:bios,undionly.kpxe
 dhcp-boot=tag:efi64,ipxe.efi
 dhcp-boot=tag:efi32,ipxe.efi
 dhcp-boot=tag:efibc,ipxe.efi
-EOF
+EOFDNSMASQ
 
 EXPOSE 69/udp 67/udp 8000 8080 3260
 
