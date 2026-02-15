@@ -16,7 +16,7 @@ services:
       - DATA_PATH=/data
       - LOG_LEVEL=INFO
     networks:
-      - Dockernet
+      - dockernet
     restart: unless-stopped
 
   frontend:
@@ -29,7 +29,7 @@ services:
     ports:
       - "30000:3000"
     networks:
-      - Dockernet
+      - dockernet
     environment:
       - VITE_API_URL=http://localhost:8000
     depends_on:
@@ -48,7 +48,7 @@ services:
       - /mnt/user/isos:/isos
       - /mnt/isos/netbootimg/iscsi:/iscsi-images
     networks:
-      - Dockernet
+      - dockernet
     restart: unless-stopped
 
   http-server:
@@ -63,7 +63,7 @@ services:
       - /mnt/user/isos:/isos
       - /mnt/isos/netbootimg/iscsi:/iscsi-images
     networks:
-      - Dockernet
+      - dockernet
     restart: unless-stopped
 
   iscsi-target:
@@ -77,7 +77,7 @@ services:
       - ./data:/data
       - /mnt/isos/netbootimg/iscsi:/iscsi-images
     networks:
-      - Dockernet
+      - dockernet
     privileged: true
     cap_add:
       - SYS_ADMIN
@@ -87,5 +87,5 @@ services:
     restart: unless-stopped
 
 networks:
-  Dockernet:
+  dockernet:
     external: true
