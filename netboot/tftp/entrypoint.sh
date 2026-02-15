@@ -19,10 +19,57 @@ if [ ! -f /data/tftp/ipxe.efi ]; then
     curl -L -o /data/tftp/ipxe.efi https://boot.ipxe.org/ipxe.efi 2>&1 || echo "[TFTP] Warning: Failed to download"
 fi
 
-# Create boot.ipxe menu
-echo "[TFTP] Generating boot.ipxe menu..."
+# Create universal chainloader that detects BIOS/UEFI
+echo "[TFTP] Generating auto-detect chainloader (boot.ipxe)..."
 
 cat > /data/tftp/boot.ipxe << 'EOF'
+#!ipxe
+# Netboot Orchestrator - Universal Bootloader
+# Auto-detects BIOS vs UEFI and chains to appropriate bootloader
+# Then shows boot menu
+
+echo ========================================
+echo Netboot Orchestrator Boot
+echo ========================================
+echo
+echo Detecting system firmware type...
+echo
+
+# Detect firmware type using platform variable
+# platform: efi (UEFI), bios (legacy), unknown otherwise
+ifdef ${platform} && goto detect_platform || goto detect_arch
+
+:detect_platform
+iseq ${platform} efi && goto load_uefi || goto load_bios
+
+:detect_arch
+# Fallback: detect using architecture
+iseq ${arch} x86_64 && goto load_bios || goto load_bios
+
+:load_bios
+echo [BIOS] Loading BIOS bootloader (undionly.kpxe)...
+chain undionly.kpxe
+echo [ERROR] Failed to load BIOS bootloader
+sleep 3
+exit
+
+:load_uefi
+echo [UEFI] Loading UEFI bootloader (ipxe.efi)...
+chain ipxe.efi
+echo [ERROR] Failed to load UEFI bootloader  
+sleep 3
+exit
+
+# If we get here, bootloader loaded successfully
+# Next boot.ipxe menu will appear after chainload
+EOF
+
+echo "[TFTP] Universal chainloader created (boot.ipxe)"
+
+# Also create menu version for when chainloader completes
+echo "[TFTP] Generating interactive boot menu (boot-menu.ipxe)..."
+
+cat > /data/tftp/boot-menu.ipxe << 'EOF'
 #!ipxe
 # Netboot Orchestrator - PXE Boot Menu
 # https://ipxe.org
