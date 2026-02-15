@@ -481,9 +481,6 @@ async def boot_ipxe_menu(file_service: FileService = Depends(get_file_service)):
     menu_script = """#!ipxe
 # Netboot Orchestrator OS Installation Menu
 
-# Detect firmware type
-cpuid --ext -- x86_64 && set FIRMWARE efi || set FIRMWARE bios
-
 set color_header 0x0000ff
 set color_item 0x00ffff
 set color_selected 0xffffff
@@ -492,14 +489,13 @@ set color_selected 0xffffff
 clear
 echo
 echo ====================================
-echo  🚀 Netboot Orchestrator
+echo  Netboot Orchestrator
 echo  OS Installation Menu
 echo ====================================
 echo
 echo  Device MAC: ${net0/mac}
 echo  Device IP:  ${net0/ip}
 echo  Server IP:  ${next-server}
-echo  Firmware:   ${FIRMWARE}
 echo
 """
     
@@ -515,9 +511,9 @@ echo
             menu_script += f"echo  {idx}) {name} ({size_display})\n"
         
         menu_script += """echo
-echo  Submit your choice or press Enter for default (1)
+echo  Select an installer or press Ctrl+B for iPXE shell
 echo
-choose --timeout 60 --default 1 selected || goto menu
+choose --timeout 60 --default 1 menu_choice || goto shell
 
 """
         # Add menu items for each installer
@@ -528,26 +524,27 @@ choose --timeout 60 --default 1 selected || goto menu
             
             menu_script += f""":{idx}
 echo
-echo Booting: {name}
-echo URL: {url}
+echo Loading: {name}
 echo
-imgdownload {url} boot.img || goto menu
-boot
-sleep 5
-goto menu
+chain {url} || goto menu
 
 """
     else:
-        menu_script += """echo  No OS installers available!
+        menu_script += """echo  No OS installers available
 echo
-echo  Please upload OS installers to the Netboot Orchestrator
+echo  1) Shell
 echo
+choose --timeout 30 --default 1 menu_choice || goto shell
+
+:1
+echo Starting iPXE shell...
+sleep 1
 """
     
-    menu_script += """:exit
+    menu_script += """:shell
 echo
-echo Exiting boot menu...
-sleep 2
+echo iPXE Shell
+echo
 """
     
     return PlainTextResponse(menu_script)
