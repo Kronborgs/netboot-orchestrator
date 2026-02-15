@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { apiFetch } from '../api/client';
 
 interface Image {
   id: string;
@@ -36,7 +37,7 @@ export const ImageManagement: React.FC = () => {
   const fetchImages = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/images`);
+      const res = await apiFetch(`/api/v1/images`);
       if (res.ok) {
         setImages(await res.json());
       }
@@ -48,7 +49,7 @@ export const ImageManagement: React.FC = () => {
 
   const fetchDevices = async () => {
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/devices`);
+      const res = await apiFetch(`/api/v1/devices`);
       if (res.ok) {
         setDevices(await res.json());
       }
@@ -60,7 +61,7 @@ export const ImageManagement: React.FC = () => {
   const handleCreateImage = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/images`, {
+      const res = await apiFetch(`/api/v1/images`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -82,7 +83,7 @@ export const ImageManagement: React.FC = () => {
     if (!assignImage) return;
     try {
       const res = await fetch(
-        `http://localhost:8000/api/v1/images/${assignImage.imageId}/assign?mac=${assignImage.mac}`,
+        `/api/v1/images/${assignImage.imageId}/assign?mac=${assignImage.mac}`,
         { method: 'PUT' }
       );
       if (res.ok) {
@@ -98,7 +99,7 @@ export const ImageManagement: React.FC = () => {
   const handleUnassignImage = async (imageId: string) => {
     try {
       const res = await fetch(
-        `http://localhost:8000/api/v1/images/${imageId}/unassign`,
+        `/api/v1/images/${imageId}/unassign`,
         { method: 'PUT' }
       );
       if (res.ok) {

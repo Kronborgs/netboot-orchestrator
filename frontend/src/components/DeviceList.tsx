@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { apiFetch } from '../api/client';
 
 interface Device {
   mac: string;
@@ -28,7 +29,7 @@ export const DeviceList: React.FC = () => {
   const fetchDevices = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`http://localhost:8000/api/v1/devices`);
+      const response = await apiFetch(`/api/v1/devices`);
       if (response.ok) {
         setDevices(await response.json());
         setError(null);
@@ -44,7 +45,7 @@ export const DeviceList: React.FC = () => {
   const handleCreateDevice = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/devices`, {
+      const res = await apiFetch(`/api/v1/devices`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
@@ -63,7 +64,7 @@ export const DeviceList: React.FC = () => {
   const deleteDevice = async (mac: string) => {
     if (!confirm('Are you sure you want to delete this device?')) return;
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/devices/${mac}`, {
+      const res = await apiFetch(`/api/v1/devices/${mac}`, {
         method: 'DELETE'
       });
       if (res.ok) {
@@ -77,7 +78,7 @@ export const DeviceList: React.FC = () => {
 
   const toggleDeviceStatus = async (device: Device) => {
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/devices/${device.mac}`, {
+      const res = await apiFetch(`/api/v1/devices/${device.mac}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...device, enabled: !device.enabled })

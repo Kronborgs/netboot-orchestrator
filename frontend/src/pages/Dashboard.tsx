@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { DeviceList } from '../components/DeviceList';
+import { apiFetch } from '../api/client';
 
 interface Stats {
   activeDevices: number;
@@ -34,10 +35,10 @@ export const Dashboard: React.FC = () => {
         osRes,
         storageRes
       ] = await Promise.all([
-        fetch(`http://localhost:8000/api/v1/devices`),
-        fetch(`http://localhost:8000/api/v1/images`),
-        fetch(`http://localhost:8000/api/v1/os-installers/files`),
-        fetch(`http://localhost:8000/api/v1/storage/info`)
+        apiFetch(`/api/v1/devices`),
+        apiFetch(`/api/v1/images`),
+        apiFetch(`/api/v1/os-installers/files`),
+        apiFetch(`/api/v1/storage/info`)
       ]);
 
       let devices = [], images = [], osFiles = {}, storage = {};

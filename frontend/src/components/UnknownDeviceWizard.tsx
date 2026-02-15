@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { apiFetch } from '../api/client';
 
 interface UnknownDevice {
   mac: string;
@@ -42,7 +43,7 @@ export const UnknownDeviceWizard: React.FC = () => {
   const fetchUnknownDevices = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/unknown-devices`);
+      const res = await apiFetch(`/api/v1/unknown-devices`);
       if (res.ok) {
         setUnknownDevices(await res.json());
       }
@@ -54,7 +55,7 @@ export const UnknownDeviceWizard: React.FC = () => {
 
   const fetchImages = async () => {
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/images`);
+      const res = await apiFetch(`/api/v1/images`);
       if (res.ok) {
         setImages(await res.json());
       }
@@ -65,7 +66,7 @@ export const UnknownDeviceWizard: React.FC = () => {
 
   const fetchOSFiles = async () => {
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/os-installers/files`);
+      const res = await apiFetch(`/api/v1/os-installers/files`);
       if (res.ok) {
         const data = await res.json();
         setOsFiles(data.files || []);
@@ -91,14 +92,14 @@ export const UnknownDeviceWizard: React.FC = () => {
 
     try {
       const res = await fetch(
-        `http://localhost:8000/api/v1/unknown-devices/register?mac=${selectedDevice.mac}&device_type=${assignment.deviceType}`,
+        `/api/v1/unknown-devices/register?mac=${selectedDevice.mac}&device_type=${assignment.deviceType}`,
         { method: 'POST' }
       );
 
       if (res.ok) {
         // Create device assignment if image selected
         if (assignment.installTarget === 'iscsi' && assignment.selectedImage) {
-          await fetch(`http://localhost:8000/api/v1/images/${assignment.selectedImage}/assign?mac=${selectedDevice.mac}`, {
+          await apiFetch(`/api/v1/images/${assignment.selectedImage}/assign?mac=${selectedDevice.mac}`, {
             method: 'PUT'
           });
         }

@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { apiFetch } from '../api/client';
+import { apiFetch } from '../api/client';
 
 interface OSFile {
   filename: string;
@@ -39,7 +41,7 @@ export const OsInstallerList: React.FC = () => {
   const fetchFiles = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/os-installers/files`);
+      const res = await apiFetch(`/api/v1/os-installers/files`);
       if (res.ok) {
         const data = await res.json();
         setFiles(data.files || []);
@@ -52,7 +54,7 @@ export const OsInstallerList: React.FC = () => {
 
   const fetchStorageInfo = async () => {
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/storage/info`);
+      const res = await apiFetch(`/api/v1/storage/info`);
       if (res.ok) {
         setStorage(await res.json());
       }
@@ -92,7 +94,7 @@ export const OsInstallerList: React.FC = () => {
           });
           xhr.addEventListener('error', reject);
 
-          xhr.open('POST', `http://localhost:8000/api/v1/os-installers/upload`);
+          xhr.open('POST', `${window.location.protocol}//${window.location.hostname}:8000/api/v1/os-installers/upload`);
           xhr.send(formData);
         });
       } catch (error) {
@@ -111,7 +113,7 @@ export const OsInstallerList: React.FC = () => {
 
     try {
       const res = await fetch(
-        `http://localhost:8000/api/v1/os-installers/files/${filePath}`,
+        `/api/v1/os-installers/files/${filePath}`,
         { method: 'DELETE' }
       );
       if (res.ok) {
