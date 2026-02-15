@@ -80,16 +80,16 @@ Device (10.10.50.x)  ←DHCP/PXE→  Unraid Server (192.168.1.50)
 - [x] **dnsmasq DHCP loop fixed** → serve boot.ipxe to iPXE clients (commit 1193e3e)
 
 ### 🔄 In Progress
-- **x86/x64 PXE boot verification** (80% complete - IMPROVEMENTS DEPLOYED)
+- **x86/x64 PXE boot verification** (85% complete - SYNTAX ERRORS FIXED)
   - ✅ Stage 1: undionly.kpxe downloads successfully (70KB) 
   - ✅ Stage 1.5: undionly.kpxe boots (iPXE shell accessible via Ctrl+B)
-  - ✅ Stage 2: boot.ipxe now has improved timeout & retry logic (commit c8b058d)
-  - **Improvements Deployed:**
-    - Uses DHCP-provided `${next-server}` instead of hardcoding IP
-    - Added 10-second timeout on HTTP chainload
-    - Auto-retry with DHCP renewal if first attempt fails
-    - Better diagnostics showing which server is being used
-  - **Next Test:** HyperV boot should now handle timeouts better and retry if needed
+  - ✅ Stage 2: undionly.ipxe script now has correct syntax (commit a48527e)
+  - **Latest Improvements:**
+    - Fixed iPXE script syntax errors (removed line breaks in commands)
+    - Script uses simple, proven iPXE commands
+    - Simplified error handling and shell fallback
+  - **Current Status:** Ready for re-test on HyperV with fixed syntax
+  - **When Testing:** Device should see "Initializing network with DHCP..." message if script executes properly
 
 ### ⏳ Pending
 - [ ] Fix HTTP chainload network connectivity (blocking test)
@@ -189,11 +189,11 @@ curl http://192.168.1.50:8000/api/v1/boot/ipxe/menu
 
 | Commit | Date | Issue | Fix |
 |--------|------|-------|-----|
+| `a48527e` | Feb 15 | iPXE script syntax error | Fixed line breaks in undionly.ipxe - commands were split across lines |
+| `68e228f` | Feb 15 | **undionly.kpxe not auto-executing** | **CRITICAL FIX**: Create undionly.ipxe - the script that undionly.kpxe auto-executes |
 | `c8b058d` | Feb 15 | HTTP chainload timeout | Added 10s timeout, DHCP retry, $next-server variable, better diagnostics |
-| `1193e3e` | Feb 15 | Infinite DHCP loop | Added `dhcp-boot` rules in dnsmasq to serve boot.ipxe to iPXE clients |
+| `1193e3e` | Feb 15 | Infinite DHCP loop | Added `dhcp-boot` rules in dnsmasq (ineffective, router handles DHCP) |
 | `55da7dd` | Feb 15 | API 500 error | Fixed dict/list iteration in boot menu endpoint |
-| `17ac220` | Feb 15 | TFTP chainload timeout | Changed from TFTP to HTTP for Stage 2 chainload |
-| `e82c0f4` | Feb 15 | Custom build complexity | Simplified to use pre-built iPXE binaries |
 
 ---
 
@@ -279,12 +279,34 @@ But got "Network unreachable" error, suggesting either:
 2. API service not running or not responding on port 8000
 3. Network timeout before connection established
 
-**Feb 15 Update: Improvements Deployed**
-- New boot.ipxe script now uses `${next-server}` from DHCP instead of hardcoding IP
-- Added 10-second timeout to give network time to route packets across VLANs
-- Auto-retry with DHCP renewal if first HTTP chainload attempt fails
-- This should handle multi-VLAN timing/routing issues better
-- **Status:** Ready for re-test on HyperV
+**Feb 15 Update: Script Syntax Fixed**
+- First attempt (commit 68e228f) had syntax errors: line breaks in middle of commands
+- "DHCP: command not found" error indicated iPXE couldn't parse the script properly
+- Fixed by removing line breaks within compound commands (Feb 15, commit a48527e)
+- Simplified script structure for clarity and reliability
+- **Status:** Ready for re-test on HyperV with corrected syntax
+
+**What to Expect on Next Boot:**
+If script loads correctly, device should see:
+```
+echo ====================================================
+echo        Netboot Orchestrator - iPXE Stage 2
+echo ====================================================
+echo
+echo MAC Address: 00:15:5d:32:16:03
+echo IPv4 Address: [will show assigned IP]
+echo Gateway: 10.10.50.1
+echo
+echo Initializing network with DHCP...
+[runs dhcp command]
+echo
+echo Attempting HTTP chainload to API on 192.168.1.50:8000
+[attempts: timeout 15 chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu]
+```
+
+If HTTP succeeds: Would display boot menu  
+If HTTP times out: Retries with DHCP renewal  
+If still fails: Drops to shell for manual commands
 
 ---
 
