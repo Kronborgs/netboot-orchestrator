@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Dashboard } from './pages/Dashboard';
 import { Inventory } from './pages/Inventory';
+import { SetupGuide } from './pages/SetupGuide';
 import './styles/index.css';
 
-type Page = 'dashboard' | 'inventory';
+type Page = 'dashboard' | 'inventory' | 'setup';
 
 function App() {
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
@@ -70,6 +71,22 @@ function App() {
             >
               📦 Inventory
             </button>
+            <button
+              className={currentPage === 'setup' ? 'active' : ''}
+              onClick={() => setCurrentPage('setup')}
+              style={{
+                background: currentPage === 'setup' ? 'rgba(255,255,255,0.3)' : 'transparent',
+                border: 'none',
+                color: 'white',
+                cursor: 'pointer',
+                padding: '8px 16px',
+                borderRadius: '6px',
+                transition: 'all 0.2s',
+                fontSize: '14px'
+              }}
+            >
+              ⚙️ Setup Guide
+            </button>
           </nav>
         </div>
       </header>
@@ -77,6 +94,7 @@ function App() {
       <main className="main-content">
         {currentPage === 'dashboard' && <Dashboard />}
         {currentPage === 'inventory' && <Inventory />}
+        {currentPage === 'setup' && <SetupGuide />}
       </main>
 
       <footer style={{
