@@ -91,6 +91,93 @@ class FileService:
                 "tree": None
             }
     
+    def get_folder_contents(self, folder_path: str = "", is_images: bool = False) -> Dict[str, Any]:
+        """Get contents of a specific folder (lazy loading)."""
+        base_path = self.images_path if is_images else self.os_installers_path
+        
+        if folder_path:
+            full_path = base_path / folder_path
+        else:
+            full_path = base_path
+        
+        if not full_path.exists() or not full_path.is_dir():
+            return {
+                "error": f"Folder not found: {full_path}",
+                "path": folder_path,
+                "items": [],
+                "breadcrumb": []
+            }
+        
+        try:
+            items = []
+            total_size = 0
+            
+            for item in sorted(full_path.iterdir(), key=lambda x: (x.is_file(), x.name)):
+                stat = item.stat()
+                size = stat.st_size
+                rel_path = str(item.relative_to(base_path))
+                
+                if item.is_dir():
+                    # For directories, only count immediate children
+                    dir_size = 0
+                    try:
+                        for child in item.rglob("*"):
+                            if child.is_file():
+                                dir_size += child.stat().st_size
+                    except PermissionError:
+                        pass
+                    
+                    items.append({
+                        "name": item.name,
+                        "type": "folder",
+                        "path": rel_path,
+                        "size_bytes": dir_size,
+                        "size_display": self._format_bytes(dir_size),
+                        "has_children": len(list(item.iterdir())) > 0
+                    })
+                    total_size += dir_size
+                else:
+                    items.append({
+                        "name": item.name,
+                        "type": "file",
+                        "path": rel_path,
+                        "size_bytes": size,
+                        "size_display": self._format_bytes(size),
+                        "created_at": datetime.fromtimestamp(stat.st_ctime).isoformat(),
+                        "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat()
+                    })
+                    total_size += size
+            
+            # Build breadcrumb
+            breadcrumb = []
+            if folder_path:
+                breadcrumb.append({"name": "📁 Root", "path": ""})
+                parts = folder_path.split("/")
+                for i, part in enumerate(parts):
+                    breadcrumb.append({
+                        "name": part,
+                        "path": "/".join(parts[:i+1])
+                    })
+            else:
+                breadcrumb.append({"name": "📁 Root", "path": ""})
+            
+            return {
+                "path": folder_path,
+                "items": items,
+                "breadcrumb": breadcrumb,
+                "total_size_bytes": total_size,
+                "total_size_display": self._format_bytes(total_size),
+                "item_count": len(items)
+            }
+        except Exception as e:
+            logger.error(f"Error getting folder contents: {e}")
+            return {
+                "error": str(e),
+                "path": folder_path,
+                "items": [],
+                "breadcrumb": []
+            }
+    
     def list_os_installer_files(self) -> Dict[str, Any]:
         """List all OS installer files in the directory."""
         files = []

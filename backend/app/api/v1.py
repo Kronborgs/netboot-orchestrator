@@ -186,6 +186,18 @@ async def get_os_installers_tree(file_service: FileService = Depends(get_file_se
     return result
 
 
+@router.get("/os-installers/browse")
+async def browse_os_installers_folder(
+    folder_path: str = Query("", description="Folder path relative to OS installers root"),
+    file_service: FileService = Depends(get_file_service)
+):
+    """Browse OS installer folder contents (lazy loading)."""
+    result = file_service.get_folder_contents(folder_path, is_images=False)
+    if "error" in result:
+        raise HTTPException(status_code=500, detail=result["error"])
+    return result
+
+
 @router.get("/os-installers/files")
 async def list_os_installer_files(file_service: FileService = Depends(get_file_service)):
     """List all OS installer files in the directory."""

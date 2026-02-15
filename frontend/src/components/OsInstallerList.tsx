@@ -1,14 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { apiFetch } from '../api/client';
 
-interface OSFile {
-  filename: string;
-  path: string;
-  size_bytes: number;
-  created_at: string;
-  modified_at: string;
-}
-
 interface StorageInfo {
   os_installers: {
     size_bytes: number;
@@ -24,107 +16,26 @@ interface StorageInfo {
   };
 }
 
-interface FolderNode {
+interface FolderItem {
   name: string;
   type: 'folder' | 'file';
   path: string;
-  children?: FolderNode[];
   size_bytes: number;
-  size_display?: string;
+  size_display: string;
+  has_children?: boolean;
   created_at?: string;
   modified_at?: string;
 }
 
-const FolderItem: React.FC<{ node: FolderNode; level: number; onDelete: (path: string) => void }> = ({ 
-  node, 
-  level,
-  onDelete 
-}) => {
-  const [expanded, setExpanded] = useState(level === 0);
-
-  if (node.type === 'file') {
-    return (
-      <div style={{ 
-        paddingLeft: `${level * 20 + 8}px`, 
-        paddingRight: '8px',
-        paddingTop: '8px',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        borderBottom: '1px solid var(--border-color)',
-        minHeight: '32px'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
-          <span>📄</span>
-          <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-            <span style={{ fontWeight: '500' }}>{node.name}</span>
-            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-              {node.size_display}
-            </span>
-          </div>
-        </div>
-        <button
-          className="btn-danger btn-small"
-          onClick={() => onDelete(node.path)}
-          style={{ marginLeft: '12px' }}
-        >
-          Delete
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <div style={{ 
-        paddingLeft: `${level * 20}px`,
-        paddingRight: '8px',
-        paddingTop: '8px',
-        paddingBottom: '8px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        cursor: 'pointer',
-        backgroundColor: level % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)',
-        borderBottom: level === 0 ? '1px solid var(--border-color)' : 'none'
-      }}
-      onClick={() => setExpanded(!expanded)}>
-        <span style={{ 
-          width: '20px', 
-          display: 'flex',
-          justifyContent: 'center',
-          transition: 'transform 0.2s',
-          transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)'
-        }}>
-          {node.children && node.children.length > 0 ? '▶' : ''}
-        </span>
-        <span style={{ fontSize: '16px' }}>📁</span>
-        <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-          <span style={{ fontWeight: '500' }}>{node.name || 'root'}</span>
-          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-            {node.size_display}
-          </span>
-        </div>
-      </div>
-      
-      {expanded && node.children && (
-        <div>
-          {node.children.map((child, idx) => (
-            <FolderItem 
-              key={`${child.path}-${idx}`} 
-              node={child} 
-              level={level + 1}
-              onDelete={onDelete}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
+interface Breadcrumb {
+  name: string;
+  path: string;
+}
 
 export const OsInstallerList: React.FC = () => {
-  const [folderTree, setFolderTree] = useState<FolderNode | null>(null);
+  const [currentFolder, setCurrentFolder] = useState<string>("");
+  const [items, setItems] = useState<FolderItem[]>([]);
+  const [breadcrumb, setBreadcrumb] = useState<Breadcrumb[]>([]);
   const [storage, setStorage] = useState<StorageInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -132,20 +43,23 @@ export const OsInstallerList: React.FC = () => {
   const [dragOver, setDragOver] = useState(false);
 
   useEffect(() => {
-    fetchFolderTree();
+    fetchFolderContents("");
     fetchStorageInfo();
   }, []);
 
-  const fetchFolderTree = async () => {
+  const fetchFolderContents = async (folderPath: string) => {
     setLoading(true);
     try {
-      const res = await apiFetch(`/api/v1/os-installers/tree`);
+      const query = folderPath ? `?folder_path=${encodeURIComponent(folderPath)}` : "";
+      const res = await apiFetch(`/api/v1/os-installers/browse${query}`);
       if (res.ok) {
         const data = await res.json();
-        setFolderTree(data.tree);
+        setCurrentFolder(data.path);
+        setItems(data.items || []);
+        setBreadcrumb(data.breadcrumb || []);
       }
     } catch (error) {
-      console.error('Failed to fetch folder tree:', error);
+      console.error('Failed to fetch folder contents:', error);
     }
     setLoading(false);
   };
@@ -159,6 +73,14 @@ export const OsInstallerList: React.FC = () => {
     } catch (error) {
       console.error('Failed to fetch storage info:', error);
     }
+  };
+
+  const handleFolderClick = (folderPath: string) => {
+    fetchFolderContents(folderPath);
+  };
+
+  const handleBreadcrumbClick = (path: string) => {
+    fetchFolderContents(path);
   };
 
   const handleFileUpload = async (filesToUpload: FileList) => {
@@ -202,7 +124,7 @@ export const OsInstallerList: React.FC = () => {
 
     setUploading(false);
     setUploadProgress(0);
-    await fetchFolderTree();
+    await fetchFolderContents(currentFolder);
     await fetchStorageInfo();
   };
 
@@ -217,7 +139,7 @@ export const OsInstallerList: React.FC = () => {
         alert(`Failed to delete file: ${res.statusText}`);
         return;
       }
-      await fetchFolderTree();
+      await fetchFolderContents(currentFolder);
       await fetchStorageInfo();
     } catch (error) {
       console.error('Failed to delete file:', error);
@@ -311,29 +233,97 @@ export const OsInstallerList: React.FC = () => {
         </div>
       )}
 
-      {loading ? (
-        <div className="loading mt-4">
-          <div className="spinner"></div>
-        </div>
-      ) : folderTree && folderTree.children && folderTree.children.length > 0 ? (
-        <div className="card" style={{ background: 'var(--bg-secondary)' }}>
-          <div style={{ maxHeight: '500px', overflowY: 'auto' }}>
-            {folderTree.children.map((child, idx) => (
-              <FolderItem 
-                key={`${child.path}-${idx}`} 
-                node={child} 
-                level={0}
-                onDelete={handleDeleteFile}
-              />
+      {/* Breadcrumb Navigation */}
+      {breadcrumb.length > 0 && (
+        <div className="card" style={{ background: 'var(--bg-tertiary)', marginBottom: '16px', padding: '12px 16px' }}>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', fontSize: '14px', flexWrap: 'wrap' }}>
+            {breadcrumb.map((crumb, idx) => (
+              <React.Fragment key={idx}>
+                {idx > 0 && <span style={{ color: 'var(--text-secondary)' }}>/</span>}
+                <button
+                  onClick={() => handleBreadcrumbClick(crumb.path)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: crumb.path === currentFolder ? 'var(--primary-blue)' : 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    padding: '4px 8px',
+                    textDecoration: crumb.path === currentFolder ? 'underline' : 'none',
+                    fontWeight: crumb.path === currentFolder ? '600' : '400'
+                  }}
+                >
+                  {crumb.name}
+                </button>
+              </React.Fragment>
             ))}
           </div>
         </div>
-      ) : (
+      )}
+
+      {/* Folder Contents */}
+      {loading ? (
+        <div className="loading mt-4">
+          <div className="spinner"></div>
+          <div style={{ marginTop: '12px', color: 'var(--text-secondary)' }}>Loading folder contents...</div>
+        </div>
+      ) : items.length === 0 ? (
         <div className="card mt-4">
           <div className="empty-state">
             <div className="empty-state-icon">📦</div>
-            <h3>No files yet</h3>
-            <p>Upload operating system installers using drag-and-drop or browse button</p>
+            <h3>Folder is empty</h3>
+            <p>Upload files to this folder or navigate to another folder</p>
+          </div>
+        </div>
+      ) : (
+        <div className="card">
+          <div style={{ maxHeight: '600px', overflowY: 'auto' }}>
+            {items.map((item, idx) => (
+              <div
+                key={idx}
+                style={{
+                  paddingLeft: '12px',
+                  paddingRight: '12px',
+                  paddingTop: '12px',
+                  paddingBottom: '12px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  borderBottom: idx < items.length - 1 ? '1px solid var(--border-color)' : 'none',
+                  minHeight: '48px',
+                  cursor: item.type === 'folder' ? 'pointer' : 'default',
+                  backgroundColor: item.type === 'folder' ? 'var(--bg-tertiary)' : 'transparent',
+                  transition: 'background-color 0.2s'
+                }}
+                onClick={() => item.type === 'folder' && handleFolderClick(item.path)}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
+                  <span style={{ fontSize: '18px', flexShrink: 0 }}>
+                    {item.type === 'folder' ? '📁' : '📄'}
+                  </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: '500', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {item.name}
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                      {item.size_display}
+                      {item.type === 'folder' && item.has_children && ' • Click to open'}
+                    </div>
+                  </div>
+                </div>
+                {item.type === 'file' && (
+                  <button
+                    className="btn-danger btn-small"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteFile(item.path);
+                    }}
+                    style={{ marginLeft: '12px', flexShrink: 0 }}
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}
