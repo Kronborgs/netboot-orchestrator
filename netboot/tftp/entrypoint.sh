@@ -3,6 +3,10 @@ set -e
 
 echo "[TFTP] Starting dnsmasq TFTP server..."
 
+# Get boot server IP from environment or default to localhost
+BOOT_SERVER_IP="${BOOT_SERVER_IP:-api}"
+echo "[TFTP] Boot server IP: $BOOT_SERVER_IP"
+
 # Create TFTP directories
 mkdir -p /data/tftp
 
@@ -27,12 +31,22 @@ if [ ! -f /data/tftp/ipxe.efi ]; then
     fi
 fi
 
-# Create a simple boot.ipxe that chains to API menu
+# Create a boot.ipxe that chains to API menu
+# Use environment variable for boot server IP or fall back to next-server
 echo "[TFTP] Creating boot menu script..."
-cat > /data/tftp/boot.ipxe << 'EOF'
+cat > /data/tftp/boot.ipxe << EOF
 #!ipxe
-# Chain to API boot menu
-chain http://api:8000/api/v1/boot/ipxe/menu
+# Netboot Orchestrator Menu
+# Chain to API boot menu using DHCP next-server or environment boot server
+
+echo Connecting to Netboot Orchestrator...
+chain http://\${next-server}:8000/api/v1/boot/ipxe/menu || chain http://$BOOT_SERVER_IP:8000/api/v1/boot/ipxe/menu || goto fail
+
+:fail
+echo Failed to reach boot server!
+echo Next-server: \${next-server}
+echo Boot server: $BOOT_SERVER_IP
+sleep 5
 EOF
 
 echo "[TFTP] Boot files ready!"
