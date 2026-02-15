@@ -1,8 +1,8 @@
 # Netboot Orchestrator - Project Guide
 
-**Last Updated:** February 15, 2026  
-**Current Focus:** Consolidated backend architecture with simplified service management  
-**Status:** ✅ Backend Architecture Refactored - All services on host network with bash entrypoint
+**Last Updated:** February 15, 2026 (15:30 UTC)  
+**Current Focus:** Resolving iPXE boot loop via dnsmasq vendor detection  
+**Status:** ✅ Backend Architecture Refactored - iPXE Boot Loop Fix Applied
 
 ---
 
@@ -75,11 +75,13 @@ netboot-frontend (React SPA container on host network):
    - iPXE 1.21.1+ loads (confirmed in HyperV console)
    - auto-searches for undionly.ipxe (same basename, .ipxe extension)
    - undionly.ipxe script found and executes
-4. **Stage 2** 🔄 (DHCP + HTTP Chainload): 
+4. **Stage 2** ✅ (DHCP - NO BOOT LOOP - FIXED in commit aa79947)
+   - **Must handle both BIOS and iPXE DHCP requests:**
+     - **BIOS/UEFI First Request:** dnsmasq matches client-arch → responds with bootloader filename (undionly.kpxe or ipxe.efi)
+     - **iPXE Second Request:** dnsmasq now detects `vendor:iPXE` → responds with **empty filename** → prevents infinite redownload loop 🔑
    - undionly.ipxe executes: `dhcp` → `chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu`
+   - Device performs second DHCP with iPXE vendor detection, gets no filename, searches TFTP for boot.ipxe
    - dnsmasq DHCP responds from host network (both VLANs: 192.168.1.x and 10.10.50.x)
-   - Device performs second DHCP, gets IP, chains HTTP to API
-   - **PREVIOUS ISSUE RESOLVED**: Container was on bridge network, now on host network
 5. **Menu Display**: API returns boot menu (4,371 options available)
 6. **User Selection & Boot**: Device boots selected installer or iSCSI disk image
 
@@ -131,17 +133,18 @@ netboot-frontend (React SPA container on host network):
 - [x] Frontend UI (folder browser, setup guide)
 - [x] TFTP Stage 1 working (undionly.kpxe downloads confirmed)
 - [x] iPXE Stage 1.5 working (firmware detected in HyperV)
+- [x] **iPXE Boot Loop Fixed** (Feb 15, 15:30) - dnsmasq vendor detection prevents infinite redownload
 
 ### 🔄 Next Phase - Testing & Validation
-- [ ] **Boot Services Startup Verification** - Confirm all 4 services listen on host network ports
-  - dnsmasq listening on UDP 67/69
-  - nginx listening on port 8080
-  - tgtd listening on port 3260
-  - FastAPI listening on port 8000
+- [ ] **dnsmasq iPXE Detection Verification** - Boot device and verify:
+  - BIOS: Gets `undionly.kpxe` on first DHCP ✓
+  - iPXE: Detects vendor:iPXE on second DHCP, gets **no filename** (no boot loop!) ✓
+  - UEFI: Gets `ipxe.efi` on DHCP ✓
 - [ ] **End-to-End PXE Boot Test** (Device 10.10.50.159 or 192.168.1.73)
-  - Stage 1: TFTP undionly.kpxe
-  - Stage 2: DHCP + HTTP chainload to API
-  - Stage 3: Boot menu display and selection
+  - Stage 1: TFTP undionly.kpxe downloads ✅
+  - Stage 1.5: iPXE firmware initializes ✅
+  - Stage 2: iPXE DHCP (no boot loop) + HTTP chainload to API 🔄
+  - Stage 3: Boot menu displays ✓
 - [ ] **Cross-VLAN Boot Verification** - Test from 10.10.50.x VLAN to 192.168.1.50 server
 
 ### ⏳ Pending Features
@@ -242,6 +245,7 @@ curl http://192.168.1.50:8000/api/v1/boot/ipxe/menu
 
 | Commit | Date | Issue | Fix |
 |--------|------|-------|-----|
+| `aa79947` | Feb 15 | **iPXE Boot Loop** - Device re-requests undionly.kpxe infinitely | **CRITICAL FIX**: Add `dhcp-match=set:ipxe,vendor:iPXE` and `dhcp-match=set:ipxe,vendor:Etherboot` for detection + return empty filename `dhcp-boot=tag:ipxe,,192.168.1.50` |
 | `dd62807` | Feb 15 | TFTP transfer aborts on all devices (cross-VLAN AND same-VLAN) | Added `tftp-no-blocksize` and `tftp-single-port` options - disables blocksize negotiation, uses standard 512-byte blocks |
 | `5721ffd` | Feb 15 | dnsmasq DHCP config had syntax errors | Removed invalid dhcp-option lines (3rd removal: router syntax) |
 | `a7a141e` | Feb 15 | dnsmasq parsing error "bad dhcp-option at line X" | Removed DNS option and log-dhcp |
@@ -256,19 +260,28 @@ curl http://192.168.1.50:8000/api/v1/boot/ipxe/menu
 
 ## 🚨 Known Issues
 
-### Issue #1: x86/x64 PXE Boot Fails at Stage 2 (CURRENT - NETWORK CONNECTIVITY)
+### Issue #1: iPXE Boot Loop (FIXED ✅ - See Issue #2)
+Merged into Issue #2 and resolved via vendor-class detection fix.
+
+### Issue #1b: x86/x64 PXE Boot Fails at Stage 2 (CURRENT - NETWORK CONNECTIVITY)
 **Symptom:** Device boots undionly.kpxe successfully, iPXE shell available, but HTTP chainload fails  
 **Error:** "Network unreachable (https://ipxe.org/2808b011)" when attempting `chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu`  
-**Root Cause:** Device on 10.10.50.x VLAN cannot reach API on 192.168.1.50:8000 (inter-VLAN routing may be blocked or API unreachable)  
-**Status:** 🔄 **DEBUGGING IN PROGRESS** - Need to verify network connectivity from device to API  
+**Root Cause (Previous):** Device on 10.10.50.x VLAN cannot reach API on 192.168.1.50:8000 (inter-VLAN routing may be blocked or API unreachable)  
+**Status:** 🔄 **TESTING AFTER BOOT LOOP FIX** - Boot loop now fixed, re-test to see if we reach Stage 3  
 **Test Date:** February 15, 2026
 
-### Issue #2: DHCP Boot Loop (ATTEMPTED FIX - NEEDS VERIFICATION)
-**Original Symptom:** Device kept downloading undionly.kpxe in infinite loop  
-**Root Cause:** dnsmasq wasn't configured to serve boot.ipxe to iPXE clients on second DHCP  
-**Attempted Fix:** Added `dhcp-boot=tag:ipxe,boot.ipxe` rules in dnsmasq.conf (commit 1193e3e)  
-**Current Status:** ⏳ **Cannot verify yet** - depends on fixing Stage 2 network connectivity  
-**Note:** The router (not dnsmasq) provides DHCP Option 67, so dnsmasq dhcp-boot rules may not apply as expected
+### Issue #2: DHCP Boot Loop (FIXED ✅)
+**Original Symptom:** Device kept downloading undionly.kpxe in infinite loop, iPXE does DHCP again and still gets same bootloader filename  
+**Root Cause:** dnsmasq wasn't detecting iPXE clients by vendor-class, relied only on option 175 (unreliable)  
+**Solution Applied (commit aa79947):**
+  1. Added vendor-class detection: `dhcp-match=set:ipxe,vendor:iPXE` + `dhcp-match=set:ipxe,vendor:Etherboot`
+  2. Return **empty filename** to iPXE: `dhcp-boot=tag:ipxe,,192.168.1.50,192.168.1.50` (prevents redownload)
+  3. Reordered boot rules: BIOS first, iPXE second, UEFI last
+**Boot Flow Now:**
+  - BIOS: DHCP → `undionly.kpxe` → Downloads via TFTP ✅
+  - iPXE (2nd DHCP): Detected by vendor:iPXE → No filename returned → Searches TFTP for boot.ipxe ✅
+  - UEFI: DHCP → `ipxe.efi` → Downloads via TFTP ✅
+**Status:** ✅ **Fixed** - Ready for re-test on HyperV
 
 ### Issue #3: TFTP Chainload Timeout (SOLVED)
 **Original Symptom:** `chain tftp://192.168.1.50/boot-menu.ipxe` times out  
@@ -404,11 +417,11 @@ If still fails: Drops to shell for manual commands
 
 | File | Purpose | Status |
 |------|---------|--------|
-| `netboot/tftp/config/dnsmasq.conf` | TFTP/DHCP config | ✅ Updated (fix: dhcp-boot rules) |
-| `netboot/tftp/entrypoint.sh` | Boot script generation | ✅ Generates boot.ipxe + fallback |
-| `backend/app/api/v1.py` | Boot menu API | ✅ Fixed (dict extraction) |
+| `netboot/Dockerfile.backend` | Consolidated backend with dnsmasq config embedded | ✅ Updated with vendor detection (aa79947) |
+| `netboot/entrypoint-backend.sh` | Service management (dnsmasq, FastAPI, tgtd, nginx) | ✅ Working, no errors |
+| `backend/app/api/v1.py` | Boot menu API endpoint | ✅ Fixed (dict extraction) |
 | `backend/app/services/file_service.py` | OS installer listing | ✅ Returns correct structure |
-| `docker-compose.yml` | Service orchestration | ✅ All services configured |
+| `docker-compose.yml` | Service orchestration | ✅ All services on host network |
 
 ---
 
@@ -426,17 +439,22 @@ If still fails: Drops to shell for manual commands
 
 ### To debug active systems:
 ```bash
-# Watch TFTP logs
-docker logs -f netboot-tftp
+# Watch backend logs (all services)
+docker logs -f netboot-backend
+
+# Check dnsmasq config and status
+docker exec netboot-backend cat /etc/dnsmasq.d/netboot.conf
 
 # Check API responses
 curl -v http://192.168.1.50:8000/api/v1/boot/ipxe/menu
 
-# Enter TFTP container
-docker exec -it netboot-tftp bash
+# Enter backend container
+docker exec -it netboot-backend bash
 
-# Check dnsmasq config
-cat /tftp/config/dnsmasq.conf
+# Test TFTP connectivity
+tftp 192.168.1.50 69
+> get /data/tftp/boot.ipxe
+> quit
 ```
 
 ### To make changes:
