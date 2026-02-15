@@ -22,76 +22,68 @@ if [ -f /tftp/ipxe.efi ]; then
 fi
 
 # ===============================================
-# Create boot.ipxe - Auto-chainload script in TFTP root
+# Create undionly.ipxe - Script that undionly.kpxe will AUTO-EXECUTE
 # ===============================================
-# Standard undionly.kpxe will look for boot.ipxe in TFTP root as default
-cat > /data/tftp/boot.ipxe << 'EOF'
+# When undionly.kpxe boots as a firmware extension, it will look for 
+# a script with the same name but .ipxe extension. By creating undionly.ipxe,
+# we make undionly.kpxe automatically execute our boot script!
+cat > /data/tftp/undionly.ipxe << 'EOF'
 #!ipxe
-# Netboot Orchestrator - Auto-chainload boot script via HTTP
-# This runs automatically when undionly.kpxe boots
-# Uses HTTP instead of TFTP for better multi-VLAN routing reliability
-
 echo
-echo ========================================
-echo Netboot Orchestrator - Chainload
-echo ========================================
+echo ====================================================
+echo        Netboot Orchestrator - iPXE Stage 2
+echo ====================================================
 echo
-
-# Show boot info
-echo Device MAC: ${mac}
-echo Device IP: ${ip}
-echo Next Server (DHCP): ${next-server}
+echo MAC Address: ${mac}
+echo IPv4 Address: ${ipv4}
+echo Gateway: ${gw}
 echo
-
-# Build HTTP API endpoint
-# Use next-server from DHCP if available, otherwise fallback to hardcoded IP
-set api_server 192.168.1.50
-isset ${next-server} && set api_server ${next-server}
-set api_url http://${api_server}:8000/api/v1/boot/ipxe/menu
-
-echo Attempting to load boot menu via HTTP...
-echo Server: ${api_server}
-echo Endpoint: ${api_url}
+echo Initializing network...
+dhcp
 echo
-
-# Try HTTP chainload with timeout handling
-timeout 10 chain ${api_url} && goto menu_loaded || goto timeout_handler
-
-:timeout_handler
+echo Attempting HTTP chainload to API on 192.168.1.50:8000
 echo
-echo WARNING: HTTP request timed out or failed
-echo Retrying with explicit DHCP renewal...
+timeout 15 chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu && goto success || goto retry
+
+:retry
+echo
+echo WARNING: HTTP request failed - retrying with DHCP renewal...
 echo
 dhcp
-timeout 10 chain ${api_url} && goto menu_loaded || goto fallback_shell
+timeout 15 chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu && goto success || goto shell
 
-:fallback_shell
+:success
+# Boot menu loaded successfully
+exit
+
+:shell
 echo
-echo ========================================
-echo WARNING: Failed to load boot menu
-echo ========================================
+echo ===============================================
+echo ERROR: Could not load boot menu
+echo ===============================================
 echo
-echo Possible causes:
-echo   - HTTP server on 192.168.1.50:8000 not accessible
-echo   - Multi-VLAN routing issue blocking HTTP
-echo   - API endpoint not responding
+echo Cannot reach: http://192.168.1.50:8000/api/v1/boot/ipxe/menu
 echo
-echo Dropping to iPXE shell for manual testing...
+echo Probable causes:
+echo   1. Inter-VLAN routing blocked
+echo   2. API not running or not responding
+echo   3. Network connectivity issue
 echo
-echo Test commands:
+echo Try:
+echo   ping 192.168.1.50
 echo   chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu
-echo   chain tftp://192.168.1.50/boot-menu.ipxe
-echo   dhcp (reinit network)
 echo
-echo Type 'help' for all commands
-echo
-
 shell
 reboot
-
-:menu_loaded
-# Boot menu loaded successfully
 EOF
+
+echo "[TFTP] ✓ undionly.ipxe auto-execute script created"
+
+# ===============================================
+# Create boot.ipxe - Fallback explicit boot script
+# ===============================================
+# Legacy: Kept for compatibility. undionly.ipxe is the primary auto-boot mechanism.
+cat > /data/tftp/boot.ipxe << 'EOF'
 
 echo "[TFTP] ✓ Boot.ipxe auto-chainload script created"
 
