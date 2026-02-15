@@ -1,8 +1,8 @@
 # Netboot Orchestrator - Project Guide
 
-**Last Updated:** February 15, 2026 (16:15 UTC)  
-**Current Focus:** TFTP Stage 1 testing after dnsmasq syntax fixes  
-**Status:** ✅ dnsmasq Config Fixed - TFTP now loading on Unraid server
+**Last Updated:** February 15, 2026 (16:25 UTC)  
+**Current Focus:** iPXE Stage 2 HTTP chainload testing  
+**Status:** ✅ TFTP Stage 1 WORKING - Device successfully downloads undionly.kpxe and boots iPXE firmware
 
 ---
 
@@ -137,14 +137,16 @@ netboot-frontend (React SPA container on host network):
 
 ### 🔄 Next Phase - Testing & Validation
 - [x] **dnsmasq Configuration Fixed** (Feb 15, 16:10) - Deployed to Unraid
-- [ ] **TFTP Stage 1 Test** - Device downloads undionly.kpxe
-  - Verify: Device gets DHCP IP on 10.10.50.x ✓
-  - Verify: TFTP connects to 192.168.1.50:69 ✓
-  - Verify: undionly.kpxe (70KB) downloads successfully ✓
-- [ ] **iPXE Stage 1.5 Test** - undionly.kpxe boots and executes undionly.ipxe
-  - Verify: iPXE 1.21.1+ firmware initializes ✓
-  - Verify: undionly.ipxe script loads from TFTP ✓
-  - Verify: No boot loop (DHCP doesn't return undionly.kpxe again) ✓
+- [x] **TFTP Stage 1 Test** - Device downloads undionly.kpxe ✅ WORKING
+  - Verify: Device gets DHCP IP on 10.10.50.x ✅
+  - Verify: TFTP connects to 192.168.1.50:69 ✅
+  - Verify: undionly.kpxe (70KB) downloads successfully ✅
+  - Real Device: 10.10.50.159 successfully loaded undionly.kpxe via TFTP
+- [x] **iPXE Stage 1.5 Test** - undionly.kpxe boots and executes undionly.ipxe ✅ WORKING
+  - Verify: iPXE 1.21.1+ firmware initializes ✅
+  - Verify: undionly.ipxe script loads from TFTP ✅
+  - Verify: No boot loop (DHCP doesn't return undionly.kpxe again) ✅
+  - Real Device: iPXE shell accessible, firmware ready for chainload
 - [ ] **End-to-End PXE Boot Test** (Device 10.10.50.159 or 192.168.1.73)
   - Stage 1: TFTP undionly.kpxe downloads ✅
   - Stage 1.5: iPXE firmware initializes ✅
@@ -275,6 +277,8 @@ curl http://192.168.1.50:30000
 
 | Commit | Date | Issue | Fix |
 |--------|------|-------|-----|
+| `c1759df` | Feb 15 | dnsmasq parse error with `option:` prefix in numeric options | Removed `option:` prefix: `option:93` → `93` (numeric syntax required by dnsmasq 2.90) |
+| `3b29df0` | Feb 15 | dnsmasq parse error on DHCP Client Architecture detection | Changed `option:client-arch,N` to `93,N` (numeric DHCP option code, removed non-standard `option:175`) |
 | `d734a0a` | Feb 15 | Old dnsmasq config file conflicting with inline config | Removed `COPY netboot/tftp/config` and `COPY netboot/tftp/scripts` - now only inline printf config used |
 | `46a81a9` | Feb 15 | dnsmasq syntax error: 'inappropriate vendor:' | Changed `vendor:iPXE` to `option:60,iPXE*` (DHCP Vendor Class ID with wildcard) - correct dnsmasq syntax |
 | `aa79947` | Feb 15 | **iPXE Boot Loop** - Device re-requests undionly.kpxe infinitely | Added `dhcp-match=set:ipxe,option:60,iPXE*` detection + return empty filename `dhcp-boot=tag:ipxe,,192.168.1.50` |
@@ -292,17 +296,16 @@ curl http://192.168.1.50:30000
 
 ## 🚨 Known Issues
 
-### Issue #1: x86/x64 PXE Boot TFTP Stage 1 (ACTIVE - TESTING ✅)
-**Status:** Containers rebuilt on Unraid with latest fixes - TFTP Stage 1 now being tested  
-**Current:** dnsmasq config syntax fixed (removed vendor: syntax error)  
-**Testing:** Device on 10.10.50.18 should download undionly.kpxe from TFTP  
-**Test Date:** February 15, 2026 16:15 UTC  
-**Next Steps:** Boot device and verify TFTP download succeeds without timeouts
-**Symptom:** Device boots undionly.kpxe successfully, iPXE shell available, but HTTP chainload fails  
-**Error:** "Network unreachable (https://ipxe.org/2808b011)" when attempting `chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu`  
-**Root Cause (Previous):** Device on 10.10.50.x VLAN cannot reach API on 192.168.1.50:8000 (inter-VLAN routing may be blocked or API unreachable)  
-**Status:** ⏳ **PENDING TFTP FIX** - First fixing Stage 1 TFTP, then will test Stage 2  
-**Test Date:** February 15, 2026
+### Issue #1: x86/x64 PXE Boot - Stage 2 HTTP Chainload (ACTIVE - TESTING 🔄)
+**Status:** ✅ TFTP Stage 1 FIXED and WORKING - Device successfully downloads undionly.kpxe and boots iPXE firmware  
+**Current Test:** Device at 10.10.50.159 now needs to chainload HTTP menu from FastAPI  
+**Test Date:** February 15, 2026 16:25 UTC  
+**Next Steps:** Verify iPXE can reach API at 192.168.1.50:8000 for boot menu download
+**Previous Symptom:** Device boots undionly.kpxe successfully, iPXE shell available, but HTTP chainload failed  
+**Previous Error:** "Network unreachable (https://ipxe.org/2808b011)" when attempting `chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu`  
+**Previous Root Cause:** Device on 10.10.50.x VLAN cannot reach API on 192.168.1.50:8000 (inter-VLAN routing blocked or API unreachable)  
+**Status:** ✅ **TFTP Stage 1 Fixed (commits 3b29df0, c1759df, d734a0a, 46a81a9)** - Numeric DHCP options, no vendor: syntax, inline-only config  
+**Next:** Test Stage 2 (HTTP) - may need to debug inter-VLAN TCP routing or API accessibility
 
 ### Issue #2: DHCP Boot Loop (FIXED ✅)
 **Original Symptom:** Device kept downloading undionly.kpxe in infinite loop, iPXE does DHCP again and still gets same bootloader filename  
@@ -342,12 +345,13 @@ curl http://192.168.1.50:30000
 - Target: Unraid 192.168.1.50 (API port 8000, TFTP port 69)
 - Test Method: Boot VM via PXE, observe boot sequence
 
-**Results:**
+**Results (Updated Feb 15, 16:25 UTC):**
 ```
-✅ Stage 1 (TFTP): undionly.kpxe downloaded (70810 bytes)
-✅ Stage 1.5 (iPXE Boot): undionly.kpxe booted successfully
-✅ iPXE Ready: Shell accessible via Ctrl+B, confirming iPXE loaded
-❌ Stage 2 (HTTP): boot.ipxe chainload to API failed
+✅ Stage 1 (TFTP): undionly.kpxe downloaded (70810 bytes) - CONFIRMED ON REAL DEVICE
+✅ Stage 1.5 (iPXE Boot): undionly.kpxe booted successfully - CONFIRMED
+✅ iPXE Ready: Shell accessible via Ctrl+B, confirming iPXE 1.21.1+ loaded - CONFIRMED
+✅ DHCP Detection: Device properly detected as iPXE (vendor class matching working)
+🔄 Stage 2 (HTTP): boot.ipxe chainload to API - PENDING TEST
    Error: "Network unreachable (https://ipxe.org/2808b011)"
 ```
 
