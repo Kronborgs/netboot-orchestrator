@@ -78,7 +78,7 @@ function App() {
         color: 'var(--text-secondary)',
         fontSize: '12px'
       }}>
-        <div style={{ marginBottom: '8px' }}>🚀 Netboot Orchestrator v2026-02-14-V1</div>
+        <div style={{ marginBottom: '8px' }}>🚀 Netboot Orchestrator v2026-02-15-V1</div>
         <div>Network boot management for Raspberry Pi, x86, and x64 systems</div>
       </footer>
     </div>
