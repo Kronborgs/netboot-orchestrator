@@ -8,6 +8,8 @@ services:
       - "8000:8000"
     volumes:
       - ./data:/data
+      - /mnt/user/isos:/isos
+      - /mnt/isos/netbootimg/iscsi:/iscsi-images
     environment:
       - API_HOST=0.0.0.0
       - API_PORT=8000
@@ -44,6 +46,8 @@ services:
       - "67:67/udp"
     volumes:
       - ./data:/data
+      - /mnt/user/isos:/isos
+      - /mnt/isos/netbootimg/iscsi:/iscsi-images
     networks:
       - netboot
     restart: unless-stopped
@@ -57,6 +61,8 @@ services:
       - "8080:80"
     volumes:
       - ./data:/data
+      - /mnt/user/isos:/isos
+      - /mnt/isos/netbootimg/iscsi:/iscsi-images
     networks:
       - netboot
     restart: unless-stopped
@@ -70,6 +76,7 @@ services:
       - "3260:3260"
     volumes:
       - ./data:/data
+      - /mnt/isos/netbootimg/iscsi:/iscsi-images
     networks:
       - netboot
     privileged: true
