@@ -23,10 +23,6 @@ RUN mkdir -p /data /tftp /app/backend
 COPY backend /app/backend/
 WORKDIR /app/backend
 
-# Copy TFTP config and scripts
-COPY netboot/tftp/config /etc/dnsmasq.d/
-COPY netboot/tftp/scripts /tftp/scripts/
-
 # Copy entrypoint script
 COPY netboot/entrypoint-backend.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
