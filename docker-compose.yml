@@ -43,7 +43,6 @@ services:
     container_name: netboot-tftp
     ports:
       - "69:69/udp"
-      - "67:67/udp"
     volumes:
       - ./data:/data
       - /mnt/user/isos:/isos
