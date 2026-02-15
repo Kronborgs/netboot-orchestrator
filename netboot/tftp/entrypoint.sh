@@ -40,14 +40,30 @@ echo
 # Show boot info
 echo Device MAC: ${mac}
 echo Device IP: ${ip}
+echo Next Server (DHCP): ${next-server}
 echo
 
-# Attempt to load boot menu from API via HTTP
-echo Loading boot menu via HTTP...
-echo Chainload: http://192.168.1.50:8000/api/v1/boot/ipxe/menu
+# Build HTTP API endpoint
+# Use next-server from DHCP if available, otherwise fallback to hardcoded IP
+set api_server 192.168.1.50
+isset ${next-server} && set api_server ${next-server}
+set api_url http://${api_server}:8000/api/v1/boot/ipxe/menu
+
+echo Attempting to load boot menu via HTTP...
+echo Server: ${api_server}
+echo Endpoint: ${api_url}
 echo
 
-chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu && goto menu_loaded || goto fallback_shell
+# Try HTTP chainload with timeout handling
+timeout 10 chain ${api_url} && goto menu_loaded || goto timeout_handler
+
+:timeout_handler
+echo
+echo WARNING: HTTP request timed out or failed
+echo Retrying with explicit DHCP renewal...
+echo
+dhcp
+timeout 10 chain ${api_url} && goto menu_loaded || goto fallback_shell
 
 :fallback_shell
 echo
