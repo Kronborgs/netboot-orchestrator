@@ -22,15 +22,15 @@ RUN pip3 install fastapi uvicorn python-multipart
 RUN mkdir -p /data /tftp /app/backend
 
 # Copy FastAPI backend code
-COPY ../backend /app/backend/
+COPY backend /app/backend/
 WORKDIR /app/backend
 
 # Copy TFTP config and scripts
-COPY tftp/config /etc/dnsmasq.d/
-COPY tftp/scripts /tftp/scripts/
+COPY netboot/tftp/config /etc/dnsmasq.d/
+COPY netboot/tftp/scripts /tftp/scripts/
 
 # Copy HTTP/nginx config
-COPY http/conf /etc/nginx/conf.d/
+COPY netboot/http/conf /etc/nginx/conf.d/
 
 # Download iPXE bootloaders
 WORKDIR /data/tftp

@@ -1,8 +1,8 @@
 services:
   netboot-backend:
     build:
-      context: ./netboot
-      dockerfile: Dockerfile.backend
+      context: .
+      dockerfile: netboot/Dockerfile.backend
     container_name: netboot-backend
     network_mode: host
     volumes:
