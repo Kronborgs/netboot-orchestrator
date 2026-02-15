@@ -1,8 +1,8 @@
 # Netboot Orchestrator - Project Guide
 
 **Last Updated:** February 15, 2026  
-**Current Focus:** Fixing x86/x64 PXE boot chain - Stage 2 network failure  
-**Status:** 🔄 In Progress - iPXE Stage 2 DHCP/HTTP chainload debugging
+**Current Focus:** Consolidated backend architecture with simplified service management  
+**Status:** ✅ Backend Architecture Refactored - All services on host network with bash entrypoint
 
 ---
 
@@ -34,34 +34,70 @@
 
 ### Network Setup
 ```
-Device (10.10.50.159)  ←DHCP/PXE→  Unraid Server (192.168.1.50)
-  (HyperV or Real HW)                ├─ TFTP (UDP 69)      ← undionly.kpxe ✅
-                                     ├─ HTTP (TCP 8000)    ← boot menu via API
-                                     ├─ iSCSI (TCP 3260)   ← disk images
-                                     └─ Frontend (TCP 30000/3000)
-     
-Cross-VLAN Routing: Via Unifi controller/switch
+Boot VLAN (10.10.50.x)              Primary VLAN (192.168.1.x)
+├─ Test Devices/VMs          ←PXE→  ├─ Unraid Server (192.168.1.50)
+└─ Unifi Router DHCP               │  
+                                    ├─ netboot-backend (host network)
+                                    │  ├─ FastAPI (port 8000)
+                                    │  ├─ dnsmasq TFTP/DHCP (UDP 67/69)
+                                    │  ├─ nginx HTTP (port 8080)
+                                    │  └─ tgtd iSCSI (port 3260)
+                                    │
+                                    └─ netboot-frontend (host network)
+                                       └─ React SPA (port 30000)
+
+KEY ARCHITECTURE CHANGE (Feb 15):
+✅ Consolidated all services into single netboot-backend container
+✅ Both containers use network_mode: host (direct physical network access)
+✅ Eliminated Docker bridge network isolation issue
+```
+
+### Container Stack
+```
+netboot-backend (Single consolidated container on host network):
+├─ FastAPI (Uvicorn) - API server, device management, boot menu generation
+├─ dnsmasq - TFTP server (port 69/udp), DHCP server (port 67/udp)
+├─ nginx - HTTP boot file server (port 8080)
+├─ tgtd - iSCSI target server (port 3260)
+└─ entrypoint-backend.sh - Simple bash script managing all 4 services
+
+netboot-frontend (React SPA container on host network):
+└─ React + Vite compiled to nginx serving (port 30000 → localhost:3000)
 ```
 
 ### Boot Flow (Current x86/x64)
 
 1. **Device DHCP** (via Unifi router) → Option 67 = `undionly.kpxe`
 2. **Stage 1** ✅ (TFTP): Device downloads `undionly.kpxe` from TFTP
-   - confirmed in dnsmasq logs: "sent /data/tftp/undionly.kpxe to 10.10.50.159"
+   - dnsmasq listens on UDP 69 (host network, direct physical interface access)
+   - confirmed: "sent /data/tftp/undionly.kpxe to {device_ip}"
 3. **Stage 1.5** ✅ (iPXE Init): undionly.kpxe boots as firmware extension
    - iPXE 1.21.1+ loads (confirmed in HyperV console)
    - auto-searches for undionly.ipxe (same basename, .ipxe extension)
    - undionly.ipxe script found and executes
-4. **Stage 2** ❌ (DHCP + HTTP Chainload): **CURRENTLY FAILING**
+4. **Stage 2** 🔄 (DHCP + HTTP Chainload): 
    - undionly.ipxe executes: `dhcp` → `chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu`
-   - **Problem:** Device shows error after DHCP stage, before HTTP request
-   - **Root cause TBD:** Could be:
-     - Cross-VLAN DHCP relay not configured on Unifi
-     - dnsmasq DHCP not responding (ranges not loading)
-     - Cross-VLAN HTTP routing blocked
-     - iPXE timeout/retry logic
-5. **Menu Display** (pending Stage 2 fix): API returns 4,371 boot options
-6. **User select** (pending): boots installer or iSCSI disk
+   - dnsmasq DHCP responds from host network (both VLANs: 192.168.1.x and 10.10.50.x)
+   - Device performs second DHCP, gets IP, chains HTTP to API
+   - **PREVIOUS ISSUE RESOLVED**: Container was on bridge network, now on host network
+5. **Menu Display**: API returns boot menu (4,371 options available)
+6. **User Selection & Boot**: Device boots selected installer or iSCSI disk image
+
+### Root Cause Analysis - Network Isolation (RESOLVED ✅)
+
+**Problem (Feb 15 morning):**
+- Devices couldn't reach TFTP despite requests being sent
+- DHCP and HTTP chainload failing
+- **Discovery:** Same-VLAN device (192.168.1.73) ALSO failed - proving NOT a cross-VLAN routing issue
+- **Root cause:** TFTP/dnsmasq ran in Docker bridge network (netboot-orchestrator_netboot), isolated from physical network
+- Device DHCP/TFTP requests on physical interface → bridge network container never received them
+
+**Solution Applied (Feb 15 14:45):**
+- ✅ Consolidated all services into single `netboot-backend` container
+- ✅ Added `network_mode: host` to docker-compose.yml
+- ✅ Services now listen directly on host network interfaces
+- ✅ Removed supervisor (caused logging errors), replaced with simple bash entrypoint script
+- ✅ All services start in background, FastAPI foreground as main process
 
 ### Boot Files Location (TFTP Root)
 ```
@@ -77,47 +113,44 @@ Cross-VLAN Routing: Via Unifi controller/switch
 
 ## 📋 Current Status
 
-### ✅ Completed
+### ✅ Architecture & Infrastructure Completed
+- [x] **Consolidated Backend Architecture** (Feb 15) - All services in single container
+  - TFTP server (dnsmasq, UDP 69)
+  - DHCP server (dnsmasq, UDP 67)  
+  - HTTP server (nginx, port 8080)
+  - iSCSI target (tgtd, port 3260)
+  - FastAPI REST API (port 8000)
+- [x] **Host Network Mode** (Feb 15) - Direct physical network access, no bridge isolation
+- [x] **Simplified Service Management** (Feb 15) - Bash entrypoint script replaces supervisor
+- [x] **Docker Image Build** (Feb 15) - Successfully builds 46.4s, all services included
 - [x] TFTP service deployment (dnsmasq v2.90)
 - [x] iPXE bootloader downloads (undionly.kpxe, ipxe.efi)
 - [x] Boot script infrastructure (boot.ipxe, undionly.ipxe, boot-menu.ipxe)
 - [x] Multi-VLAN network routing (tested TCP/UDP)
 - [x] API endpoint creation (`/api/v1/boot/ipxe/menu`) - **4,371 options generated**
-- [x] Docker infrastructure (all 5 containers running)
 - [x] Frontend UI (folder browser, setup guide)
-- [x] **TFTP Stage 1** - confirmed working (undionly.kpxe downloads)
-- [x] **iPXE Stage 1.5** - confirmed loading (firmware detected in HyperV)
-- [x] **Boot script syntax** - fixed line breaks, single-line commands (commit a48527e)
-- [x] **DHCP server config** - ranges defined, log-dhcp enabled (commits f615ceb, 8bf9471, 808890a)
+- [x] TFTP Stage 1 working (undionly.kpxe downloads confirmed)
+- [x] iPXE Stage 1.5 working (firmware detected in HyperV)
 
-### 🔄 In Progress - **TFTP TRANSFER ABORT ISSUE (NEW FIX APPLIED)**
-- **x86/x64 PXE Boot - TFTP Transfer Failures** (Current problem)
-  - ✅ Stage 1: undionly.kpxe downloads (TFTP transmit starts)
-  - ❌ Transfers abort: dnsmasq logs "TFTP Aborted" from device
-  - **CRITICAL DISCOVERY** (Feb 15 14:35 UTC): **SAME-VLAN TEST FAILS TOO!**
-    - Same-VLAN device (192.168.1.73) also shows TFTP Aborted errors
-    - This proves it's NOT a cross-VLAN routing issue
-    - Issue is with TFTP transfer itself or bootloader handling
-  - **Root Cause Analysis:**
-    - TFTP blocksize extension negotiation may be causing issues
-    - Device tries to negotiate larger block size → dnsmasq doesn't handle it → ERROR 0 abort
-    - Standard TFTP is 512-byte blocks; some devices negotiate 1024-1448 bytes
-  - **Solution Applied** (commit dd62807):
-    - Added `tftp-no-blocksize` → disables blocksize extension, forces 512-byte blocks
-    - Added `tftp-single-port` → uses single TFTP port, helps with firewall/NAT
-    - Rebuilt Docker image with new TFTP options
-    - dnsmasq logs now show: "TFTP root is /data/tftp  single port mode"
-  - **Next Step:** Test boot with new configuration to see if transfers complete
+### 🔄 Next Phase - Testing & Validation
+- [ ] **Boot Services Startup Verification** - Confirm all 4 services listen on host network ports
+  - dnsmasq listening on UDP 67/69
+  - nginx listening on port 8080
+  - tgtd listening on port 3260
+  - FastAPI listening on port 8000
+- [ ] **End-to-End PXE Boot Test** (Device 10.10.50.159 or 192.168.1.73)
+  - Stage 1: TFTP undionly.kpxe
+  - Stage 2: DHCP + HTTP chainload to API
+  - Stage 3: Boot menu display and selection
+- [ ] **Cross-VLAN Boot Verification** - Test from 10.10.50.x VLAN to 192.168.1.50 server
 
-### ⏳ Pending
-- [ ] **Stage 2 Network Fix** - determine root cause and implement solution
-  - Option A: Configure DHCP relay on Unifi router
-  - Option B: Simplify boot to use only router DHCP + HTTP
-  - Option C: Test on same VLAN as Unraid (192.168.1.x)
-- [ ] iSCSI boot testing
-- [ ] ARM/RPI4/5 U-Boot bootloader
-- [ ] Device MAC registration UI
-- [ ] Device type selector in menu
+### ⏳ Pending Features
+- [ ] **ARM/RPI4/5 U-Boot Support** - Add Raspberry Pi bootloader and DHCP boot detection
+- [ ] **iSCSI Boot Testing** - Verify persistent disk assignment and boot-from-iSCSI
+- [ ] **Device Registration UI** - Auto-register unknown MAC addresses on first boot
+- [ ] **Device Type Selector** - Boot menu detection for BIOS/UEFI/ARM architecture
+- [ ] **Windows/Linux Installer Integration** - Auto-detection and menu generation
+- [ ] **Monitoring & Analytics** - Device boot logs, success rates, performance tracking
 
 ---
 

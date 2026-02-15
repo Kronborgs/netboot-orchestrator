@@ -78,44 +78,62 @@ docker-compose ps
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│           Network Boot Clients                      │
-│     (Raspberry Pi, x86, x64 devices)               │
+│        Boot Clients (x86, x64, ARM/RPi)            │
+│  Connected via Network (DHCP PXE requests)         │
 └────────────────────┬────────────────────────────────┘
                      │ PXE/Network Boot
-     ┌───────────────┼────────────────────┬──────────┐
-     │               │                    │          │
-     ▼               ▼                    ▼          ▼
-  TFTP         HTTP Server          iSCSI Target   ...
-(Port 69)   (Port 8080)            (Port 3260)
-     │               │                    │
-     └───────────────┼────────────────────┘
+     ┌───────────────┴────────────────────┬──────────┐
+     │                                    │          │
+     ▼                                    ▼          ▼
+  TFTP                               HTTP Server  iSCSI Target
+(UDP 69)                            (Port 8080)   (Port 3260)
+     │                                   │           │
+     └───────────────┬────────────────────┴───────────┘
                      │
-        ┌────────────▼─────────────┐
-        │    FastAPI Backend       │
-        │    (Port 8000)           │
-        │  ✅ Device CRUD          │
-        │  ✅ Image Management     │
-        │  ✅ Boot Logic           │
-        │  ✅ Config Generation    │
-        └────────────┬─────────────┘
+        ┌────────────▼─────────────────────────┐
+        │  netboot-backend Container           │
+        │  (Host Network Mode)                 │
+        ├─────────────────────────────────────┤
+        │ • FastAPI REST API (Port 8000)      │
+        │ • dnsmasq TFTP/DHCP (UDP 67/69)     │
+        │ • nginx HTTP Server (Port 8080)     │
+        │ • tgtd iSCSI Target (Port 3260)     │
+        │ • Entrypoint Script (Service Mgmt)  │
+        └────────────┬─────────────────────────┘
                      │
-        ┌────────────▼─────────────┐
-        │  React Web Dashboard     │
-        │  (Port 30000)            │
-        │  ✅ Device List          │
-        │  ✅ Image Management     │
-        │  ✅ Boot Configuration   │
-        └──────────────────────────┘
+        ┌────────────▼─────────────────────────┐
+        │  netboot-frontend Container          │
+        │  (Host Network Mode)                 │
+        ├─────────────────────────────────────┤
+        │ • React Web Dashboard (Port 30000)  │
+        │ • Device Management UI               │
+        │ • Image File Browser                 │
+        │ • Boot Configuration                 │
+        └──────────────────────────────────────┘
 ```
 
-### Data Flow
+### Architecture Highlights
 
-1. **Device Powers On** → Sends PXE request to TFTP
-2. **TFTP Server** → Returns bootloader (bootcode.bin for RPi, ipxe.efi for x86)
-3. **Bootloader** → Downloads kernel via HTTP
-4. **API Check-in** → Device queries `/api/v1/boot/check-in` to determine action
-5. **iSCSI Boot** → If image assigned, mounts persistent storage block device
-6. **Full OS** → System boots with assigned disk image or runs default
+**Consolidated Backend (Single Container)**
+- All services run in one Docker container on host network mode
+- Direct access to physical network interfaces (no bridge isolation)
+- Shared data volume for TFTP files, images, configurations
+- Bash entrypoint script manages service startup (replaced supervisor)
+
+**Host Network Mode**
+- Containers bypass Docker's network layer
+- Services listen directly on host network interfaces
+- Solves DHCP/TFTP cross-VLAN issues
+- Perfect for SDN/multi-VLAN infrastructure
+
+**Data Flow**
+1. Device boots → Sends PXE DHCP request
+2. DHCP server (dnsmasq) responds with boot filename
+3. Device downloads bootloader via TFTP
+4. Bootloader executes and chains to HTTP server
+5. HTTP server returns boot menu from API
+6. Device executes selected boot option
+7. iSCSI server provides persistent storage (optional)
 
 ## 📚 Documentation
 
