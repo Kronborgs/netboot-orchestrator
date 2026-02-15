@@ -472,8 +472,9 @@ async def boot_ipxe_menu(file_service: FileService = Depends(get_file_service)):
     """
     # Get list of available OS installers
     try:
-        installers = file_service.list_os_installer_files()
-    except Exception:
+        result = file_service.list_os_installer_files()
+        installers = result.get('files', [])
+    except Exception as e:
         installers = []
     
     # Build iPXE menu script
@@ -509,8 +510,9 @@ echo
         for idx, installer in enumerate(installers, start=1):
             # Safely format installer name (max 50 chars)
             name = installer['filename'][:50]
-            size = installer.get('size_display', 'Unknown')
-            menu_script += f"echo  {idx}) {name} ({size})\n"
+            size = installer.get('size_bytes', 0)
+            size_display = f"{size / (1024**3):.2f}GB" if size > 0 else "Unknown"
+            menu_script += f"echo  {idx}) {name} ({size_display})\n"
         
         menu_script += """echo
 echo  Submit your choice or press Enter for default (1)
