@@ -1,8 +1,8 @@
 # Netboot Orchestrator - Project Guide
 
-**Last Updated:** February 15, 2026 (16:25 UTC)  
-**Current Focus:** iPXE Stage 2 HTTP chainload testing  
-**Status:** ✅ TFTP Stage 1 WORKING - Device successfully downloads undionly.kpxe and boots iPXE firmware
+**Last Updated:** February 15, 2026 (16:40 UTC)  
+**Current Focus:** iPXE Stage 2 TFTP boot menu testing  
+**Status:** ✅ TFTP Stage 1.5 WORKING - Device boots iPXE firmware and loads undionly.ipxe script (commit abca412)
 
 ---
 
@@ -75,14 +75,13 @@ netboot-frontend (React SPA container on host network):
    - iPXE 1.21.1+ loads (confirmed in HyperV console)
    - auto-searches for undionly.ipxe (same basename, .ipxe extension)
    - undionly.ipxe script found and executes
-4. **Stage 2** ✅ (DHCP - NO BOOT LOOP - FIXED in commit aa79947)
-   - **Must handle both BIOS and iPXE DHCP requests:**
-     - **BIOS/UEFI First Request:** dnsmasq matches client-arch → responds with bootloader filename (undionly.kpxe or ipxe.efi)
-     - **iPXE Second Request:** dnsmasq now detects `vendor:iPXE` → responds with **empty filename** → prevents infinite redownload loop 🔑
-   - undionly.ipxe executes: `dhcp` → `chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu`
-   - Device performs second DHCP with iPXE vendor detection, gets no filename, searches TFTP for boot.ipxe
-   - dnsmasq DHCP responds from host network (both VLANs: 192.168.1.x and 10.10.50.x)
-5. **Menu Display**: API returns boot menu (4,371 options available)
+4. **Stage 2** ✅ (iPXE Detection & Script Loading - FIXED commit abca412)
+   - After undionly.kpxe boots, iPXE firmware does ANOTHER DHCP request
+   - **KEY FIX:** dnsmasq now matches vendor class ID (option 60 = *iPXE*) → responds with `undionly.ipxe` instead of empty filename
+   - **Why this matters:** Previous config served empty filename to iPXE → device searched TFTP for default boot file → found undionly.kpxe again → infinite loop
+   - **New behavior:** iPXE gets told to load undionly.ipxe → downloads and executes plaintext script → chains to `tftp://192.168.1.50/boot-menu.ipxe`
+   - undionly.ipxe script executes: `dhcp` → `chain tftp://192.168.1.50/boot-menu.ipxe`
+5. **Stage 3** (Boot Menu): TFTP serves boot-menu.ipxe with menu selection
 6. **User Selection & Boot**: Device boots selected installer or iSCSI disk image
 
 ### Root Cause Analysis - Network Isolation (RESOLVED ✅)
@@ -150,8 +149,11 @@ netboot-frontend (React SPA container on host network):
 - [ ] **End-to-End PXE Boot Test** (Device 10.10.50.159 or 192.168.1.73)
   - Stage 1: TFTP undionly.kpxe downloads ✅
   - Stage 1.5: iPXE firmware initializes ✅
-  - Stage 2: iPXE DHCP (no boot loop) + HTTP chainload to API 🔄
-  - Stage 3: Boot menu displays ✓
+  - **Stage 2 (NEW FIX - commit abca412):** iPXE DHCP detection → load undionly.ipxe script 🔄
+    - **Issue Fixed:** DHCP was serving empty boot filename to iPXE devices → device redownloaded undionly.kpxe in a loop
+    - **Solution:** dnsmasq now serves `undionly.ipxe` to iPXE devices (detected via vendor class ID option 60)
+    - **Result:** iPXE loads plaintext script that chains to TFTP boot menu
+  - Stage 3: TFTP menu displays ✓
 - [ ] **Cross-VLAN Boot Verification** - Test from 10.10.50.x VLAN to 192.168.1.50 server
 
 ### ⏳ Pending Features
@@ -277,6 +279,7 @@ curl http://192.168.1.50:30000
 
 | Commit | Date | Issue | Fix |
 |--------|------|-------|-----|
+| `abca412` | Feb 15, 16:40 | **iPXE DHCP Returns Empty Filename** - Device doesn't load undionly.ipxe, reboots | Changed `dhcp-boot=tag:ipxe,,192.168.1.50` → `dhcp-boot=tag:ipxe,undionly.ipxe,192.168.1.50` - Now iPXE devices are explicitly told to load the plaintext boot script |
 | `c1759df` | Feb 15 | dnsmasq parse error with `option:` prefix in numeric options | Removed `option:` prefix: `option:93` → `93` (numeric syntax required by dnsmasq 2.90) |
 | `3b29df0` | Feb 15 | dnsmasq parse error on DHCP Client Architecture detection | Changed `option:client-arch,N` to `93,N` (numeric DHCP option code, removed non-standard `option:175`) |
 | `d734a0a` | Feb 15 | Old dnsmasq config file conflicting with inline config | Removed `COPY netboot/tftp/config` and `COPY netboot/tftp/scripts` - now only inline printf config used |
