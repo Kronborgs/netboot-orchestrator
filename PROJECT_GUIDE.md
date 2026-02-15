@@ -1,8 +1,8 @@
 # Netboot Orchestrator - Project Guide
 
-**Last Updated:** February 15, 2026 (15:30 UTC)  
+**Last Updated:** February 15, 2026 (15:45 UTC)  
 **Current Focus:** Resolving iPXE boot loop via dnsmasq vendor detection  
-**Status:** ✅ Backend Architecture Refactored - iPXE Boot Loop Fix Applied
+**Status:** ✅ 2-Container Architecture (Backend + Frontend) - iPXE Boot Loop Fix Applied
 
 ---
 
@@ -168,43 +168,63 @@ netboot-orchestrator/
 │   │   │   └── v1.py       # Boot menu endpoint (FIXED)
 │   │   └── services/
 │   │       └── file_service.py  # OS installer listing
-│   ├── Dockerfile
 │   └── requirements.txt
 │
 ├── frontend/                # React + TypeScript + Vite
 │   ├── src/
 │   │   ├── App.tsx
 │   │   └── components/
-│   ├── Dockerfile
 │   ├── package.json
 │   └── vite.config.ts
 │
 ├── netboot/
-│   ├── tftp/               # TFTP server (dnsmasq)
-│   │   ├── Dockerfile
-│   │   ├── config/
-│   │   │   └── dnsmasq.conf       # DHCP-boot rules (UPDATED)
-│   │   ├── entrypoint.sh          # Generates boot scripts
+│   ├── Dockerfile.backend      # 🔑 Consolidated backend: TFTP + DHCP + HTTP + iSCSI + API
+│   ├── entrypoint-backend.sh   # Service manager for all backend services
+│   ├── tftp/
 │   │   └── scripts/
-│   │       └── embed.ipxe         # Old custom build (deprecated)
-│   │
-│   ├── http/               # HTTP server (nginx)
-│   │   ├── Dockerfile
-│   │   └── conf/
-│   │       └── nginx.conf
-│   │
-│   └── iscsi/              # iSCSI target (tgtd)
-│       ├── Dockerfile
-│       └── entrypoint.sh
+│   │       └── embed.ipxe      # Legacy custom build (deprecated)
+│   └── http/
+│       └── conf/
+│           └── nginx.conf      # (nginx now managed by entrypoint script)
 │
-├── docker-compose.yml      # Orchestrates all services
+├── docker-compose.yml      # Orchestrates 2 containers:
+│                          #   - netboot-backend (all services, host network)
+│                          #   - netboot-frontend (React SPA, host network)
+│
 ├── data/                   # Persistent volume (created at runtime)
 │   ├── tftp/              # TFTP root
-│   ├── http/              # HTTP files
+│   │   ├── undionly.kpxe  # BIOS bootloader (auto-downloaded)
+│   │   ├── ipxe.efi       # UEFI bootloader (auto-downloaded)
+│   │   ├── boot.ipxe      # Stage 2 chainload script
+│   │   ├── undionly.ipxe  # Auto-boot script (runs after undionly.kpxe)
+│   │   └── boot-menu.ipxe # Fallback menu
+│   ├── http/              # HTTP boot files
 │   └── iscsi/images/      # iSCSI disk images
 │
 └── PROJECT_GUIDE.md        # ← You are here
 ```
+
+### Architecture Simplification (Feb 15, 2026)
+
+**Before (Multi-container):**
+- netboot-tftp container (dnsmasq TFTP/DHCP)
+- netboot-http container (nginx HTTP server)
+- netboot-iscsi container (tgtd iSCSI target)
+- netboot-api container (FastAPI)
+- netboot-frontend container (React)
+- ❌ All isolated in Docker bridge network
+- ❌ Supervisor complexity for process management
+
+**After (Consolidated - Current):**
+- **netboot-backend** container (single, host network):
+  - dnsmasq (TFTP + DHCP on UDP 67/69)
+  - nginx (HTTP on port 8080)
+  - tgtd (iSCSI on port 3260)
+  - FastAPI (API on port 8000)
+  - ✅ Managed by simple bash entrypoint script
+- **netboot-frontend** container (React SPA on port 30000)
+- ✅ Both on host network = direct physical network access
+- ✅ No bridge isolation issues
 
 ---
 
@@ -224,19 +244,24 @@ docker-compose up -d
 ### Verify Services
 ```bash
 docker ps
-# Should show: api, tftp, http, iscsi-target, frontend
+# Should show exactly 2 containers:
+#   - netboot-backend (consolidated services)
+#   - netboot-frontend (React SPA)
 ```
 
 ### Check Logs
 ```bash
-# TFTP initialization
-docker logs netboot-tftp --tail 20
+# All backend services (dnsmasq, tgtd, FastAPI)
+docker logs netboot-backend --tail 50
 
-# API startup
-docker logs netboot-api --tail 20
+# Frontend React app
+docker logs netboot-frontend --tail 20
 
 # Test API endpoint
 curl http://192.168.1.50:8000/api/v1/boot/ipxe/menu
+
+# Test Frontend
+curl http://192.168.1.50:30000
 ```
 
 ---
@@ -281,6 +306,20 @@ Merged into Issue #2 and resolved via vendor-class detection fix.
   - BIOS: DHCP → `undionly.kpxe` → Downloads via TFTP ✅
   - iPXE (2nd DHCP): Detected by vendor:iPXE → No filename returned → Searches TFTP for boot.ipxe ✅
   - UEFI: DHCP → `ipxe.efi` → Downloads via TFTP ✅
+
+**Technical Details of Fix:**
+The dnsmasq config now includes three vendor detection rules:
+```ini
+dhcp-match=set:ipxe,vendor:iPXE
+dhcp-match=set:ipxe,vendor:Etherboot
+dhcp-match=set:ipxe,option:175
+```
+When iPXE performs its second DHCP request, it broadcasts these vendor strings. dnsmasq matches them and responds with:
+```ini
+dhcp-boot=tag:ipxe,,192.168.1.50,192.168.1.50
+```
+Note the **empty filename** (two commas) - this tells iPXE "no boot file from me", so it searches the local TFTP root for boot scripts instead. This eliminates the infinite loop where iPXE kept requesting the same bootloader.
+
 **Status:** ✅ **Fixed** - Ready for re-test on HyperV
 
 ### Issue #3: TFTP Chainload Timeout (SOLVED)
@@ -465,15 +504,20 @@ tftp 192.168.1.50 69
 5. Push to GitHub
 
 ### To understand the boot flow:
-1. Read `netboot/tftp/entrypoint.sh` (boot.ipxe generation)
-2. Read `backend/app/api/v1.py` (boot menu endpoint logic)
-3. Check `/data/tftp/boot.ipxe` inside container (actual script served)
-4. Check DHCP logs: `docker logs netboot-tftp | grep dhcp`
+1. Read `netboot/Dockerfile.backend` (dnsmasq config + boot script generation)
+2. Read `netboot/entrypoint-backend.sh` (service startup order)
+3. Read `backend/app/api/v1.py` (boot menu endpoint logic)
+4. Check `/data/tftp/boot.ipxe` inside container (actual script served)
+5. Check DHCP logs: `docker logs netboot-backend 2>&1 | grep -i dhcp`
 
 ---
 
 ## 🎓 Developer Notes
 
+- **2-Container Architecture** - netboot-backend (all services) + netboot-frontend (React)
+- **Host Network Mode** - Both containers use `network_mode: host` for direct physical network access
+- **No Bridge Isolation** - TFTP/DHCP/HTTP requests reach containers directly on host interfaces
+- **Simplified Process Management** - Bash entrypoint script (no supervisor complexity)
 - **Docker is required** - All services run in containers for consistency
 - **Data persists in `/data` volume** - Mounted on Unraid or local drive
 - **Changes auto-reload on restart** - No need for code recompilation
