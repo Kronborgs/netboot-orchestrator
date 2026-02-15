@@ -40,139 +40,19 @@ RUN echo "Downloading iPXE bootloaders..." && \
     ls -lh undionly.kpxe ipxe.efi && \
     echo "✓ iPXE binaries ready"
 
-# Create boot scripts
-RUN mkdir -p /data/tftp && /bin/sh -c ' \
-cat > /data/tftp/undionly.ipxe << "EOFIPXE"
-#!ipxe
-echo
-echo ====================================================
-echo        Netboot Orchestrator - iPXE Stage 2
-echo ====================================================
-echo
-echo MAC Address: ${mac}
-echo IPv4 Address: ${ipv4}
-echo Gateway: ${gw}
-echo
-echo Initializing network with DHCP...
-dhcp
-echo
-echo Attempting HTTP chainload to API on 192.168.1.50:8000
-timeout 15 chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu || goto retry
-
-:retry
-echo
-echo WARNING: HTTP request failed - retrying with DHCP renewal...
-dhcp
-timeout 15 chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu || goto shell
-
-:shell
-echo
-echo ===============================================
-echo ERROR: Could not load boot menu
-echo ===============================================
-echo
-echo Cannot reach: http://192.168.1.50:8000/api/v1/boot/ipxe/menu
-echo
-shell
-reboot
-EOFIPXE
-' && /bin/sh -c ' \
-cat > /data/tftp/boot.ipxe << "EOFBOOT"
-#!ipxe
-dhcp
-chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu
-EOFBOOT
-' && /bin/sh -c ' \
-cat > /data/tftp/boot-menu.ipxe << "EOFMENU"
-#!ipxe
-clear
-echo ========================================
-echo Netboot Orchestrator
-echo Main Boot Menu
-echo ========================================
-echo
-echo Device MAC: ${mac}
-echo Device IP: ${ip}
-echo
-echo [1] iPXE Shell
-echo [2] Boot Menu (reload)
-echo [0] Reboot
-echo
-EOFMENU
-'
+# Create boot scripts - use echo with escaped newlines
+RUN mkdir -p /data/tftp && \
+    printf '#!ipxe\necho\necho ====================================================\necho        Netboot Orchestrator - iPXE Stage 2\necho ====================================================\necho\necho MAC Address: ${mac}\necho IPv4 Address: ${ipv4}\necho Gateway: ${gw}\necho\necho Initializing network with DHCP...\ndhcp\necho\necho Attempting HTTP chainload to API on 192.168.1.50:8000\ntimeout 15 chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu || goto retry\n\n:retry\necho\necho WARNING: HTTP request failed - retrying with DHCP renewal...\ndhcp\ntimeout 15 chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu || goto shell\n\n:shell\necho\necho ===============================================\necho ERROR: Could not load boot menu\necho ===============================================\necho\necho Cannot reach: http://192.168.1.50:8000/api/v1/boot/ipxe/menu\necho\nshell\nreboot\n' > /data/tftp/undionly.ipxe && \
+    printf '#!ipxe\ndhcp\nchain http://192.168.1.50:8000/api/v1/boot/ipxe/menu\n' > /data/tftp/boot.ipxe && \
+    printf '#!ipxe\nclear\necho ========================================\necho Netboot Orchestrator\necho Main Boot Menu\necho ========================================\necho\necho Device MAC: ${mac}\necho Device IP: ${ip}\necho\necho [1] iPXE Shell\necho [2] Boot Menu (reload)\necho [0] Reboot\necho\n' > /data/tftp/boot-menu.ipxe
 
 # Create supervisor config for managing all services
-RUN mkdir -p /etc/supervisor/conf.d && /bin/sh -c ' \
-cat > /etc/supervisor/conf.d/netboot.conf << "EOFSUPERVISOR"
-[supervisord]
-nodaemon=true
-logfile=/dev/stdout
-loglevel=info
-
-[program:dnsmasq]
-command=/usr/sbin/dnsmasq -C /etc/dnsmasq.d/netboot.conf -d
-autostart=true
-autorestart=true
-stderr_logfile=/dev/stderr
-stdout_logfile=/dev/stdout
-
-[program:nginx]
-command=/usr/sbin/nginx -g "daemon off;"
-autostart=true
-autorestart=true
-stderr_logfile=/dev/stderr
-stdout_logfile=/dev/stdout
-
-[program:tgtd]
-command=/usr/sbin/tgtd -f
-autostart=true
-autorestart=true
-stderr_logfile=/dev/stderr
-stdout_logfile=/dev/stdout
-
-[program:fastapi]
-command=python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000
-directory=/app/backend
-autostart=true
-autorestart=true
-stderr_logfile=/dev/stderr
-stdout_logfile=/dev/stdout
-EOFSUPERVISOR
-'
+RUN mkdir -p /etc/supervisor/conf.d && \
+    printf '[supervisord]\nnodaemon=true\nlogfile=/dev/stdout\nloglevel=info\n\n[program:dnsmasq]\ncommand=/usr/sbin/dnsmasq -C /etc/dnsmasq.d/netboot.conf -d\nautostart=true\nautorestart=true\nstderr_logfile=/dev/stderr\nstdout_logfile=/dev/stdout\n\n[program:nginx]\ncommand=/usr/sbin/nginx -g "daemon off;"\nautostart=true\nautorestart=true\nstderr_logfile=/dev/stderr\nstdout_logfile=/dev/stdout\n\n[program:tgtd]\ncommand=/usr/sbin/tgtd -f\nautostart=true\nautorestart=true\nstderr_logfile=/dev/stderr\nstdout_logfile=/dev/stdout\n\n[program:fastapi]\ncommand=python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000\ndirectory=/app/backend\nautostart=true\nautorestart=true\nstderr_logfile=/dev/stderr\nstdout_logfile=/dev/stdout\n' > /etc/supervisor/conf.d/netboot.conf
 
 # Rename dnsmasq config to standard location
-RUN mkdir -p /etc/dnsmasq.d && /bin/sh -c ' \
-cat > /etc/dnsmasq.d/netboot.conf << "EOFDNSMASQ"
-port=69
-enable-tftp
-tftp-root=/data/tftp
-tftp-no-blocksize
-tftp-max=100
-user=nobody
-group=nogroup
-log-facility=/dev/stdout
-log-queries
-
-# DHCP Server Configuration
-dhcp-range=192.168.1.100,192.168.1.200,255.255.255.0,24h
-dhcp-range=10.10.50.100,10.10.50.200,255.255.255.0,24h
-
-# PXE/UEFI Boot Detection
-dhcp-match=set:bios,option:client-arch,0
-dhcp-match=set:efi32,option:client-arch,6
-dhcp-match=set:efibc,option:client-arch,7
-dhcp-match=set:efi64,option:client-arch,9
-dhcp-match=set:arm64,option:client-arch,0x0b
-dhcp-match=set:ipxe,175
-
-# Boot File Delivery
-dhcp-boot=tag:ipxe,boot.ipxe
-dhcp-boot=tag:bios,undionly.kpxe
-dhcp-boot=tag:efi64,ipxe.efi
-dhcp-boot=tag:efi32,ipxe.efi
-dhcp-boot=tag:efibc,ipxe.efi
-EOFDNSMASQ
-'
+RUN mkdir -p /etc/dnsmasq.d && \
+    printf 'port=69\nenable-tftp\ntftp-root=/data/tftp\ntftp-no-blocksize\ntftp-max=100\nuser=nobody\ngroup=nogroup\nlog-facility=/dev/stdout\nlog-queries\n\n# DHCP Server Configuration\ndhcp-range=192.168.1.100,192.168.1.200,255.255.255.0,24h\ndhcp-range=10.10.50.100,10.10.50.200,255.255.255.0,24h\n\n# PXE/UEFI Boot Detection\ndhcp-match=set:bios,option:client-arch,0\ndhcp-match=set:efi32,option:client-arch,6\ndhcp-match=set:efibc,option:client-arch,7\ndhcp-match=set:efi64,option:client-arch,9\ndhcp-match=set:arm64,option:client-arch,0x0b\ndhcp-match=set:ipxe,175\n\n# Boot File Delivery\ndhcp-boot=tag:ipxe,boot.ipxe\ndhcp-boot=tag:bios,undionly.kpxe\ndhcp-boot=tag:efi64,ipxe.efi\ndhcp-boot=tag:efi32,ipxe.efi\ndhcp-boot=tag:efibc,ipxe.efi\n' > /etc/dnsmasq.d/netboot.conf
 
 EXPOSE 69/udp 67/udp 8000 8080 3260
 
