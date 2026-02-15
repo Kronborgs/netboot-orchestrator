@@ -479,8 +479,9 @@ async def boot_ipxe_menu(file_service: FileService = Depends(get_file_service)):
     # Build iPXE menu script
     menu_script = """#!ipxe
 # Netboot Orchestrator OS Installation Menu
-# Server: ${next-server}
-# Time: 60 second timeout for menu selection
+
+# Detect firmware type
+cpuid --ext -- x86_64 && set FIRMWARE efi || set FIRMWARE bios
 
 set color_header 0x0000ff
 set color_item 0x00ffff
