@@ -19,37 +19,66 @@ if [ ! -f /data/tftp/ipxe.efi ]; then
     curl -L -o /data/tftp/ipxe.efi https://boot.ipxe.org/ipxe.efi 2>&1 || echo "[TFTP] Warning: Failed to download"
 fi
 
-# Create boot.ipxe - chainloader that directly loads menu
+# Create boot.ipxe - chainloader that directly loads menu with debugging
 # (No Stage 2 DHCP needed - loads boot-menu.ipxe directly from TFTP)
 echo "[TFTP] Generating boot.ipxe chainloader..."
 
 cat > /data/tftp/boot.ipxe << 'EOF'
 #!ipxe
 # Netboot Orchestrator - Boot Chain to Menu
-# Directly loads boot-menu.ipxe from TFTP (no Stage 2 DHCP needed)
+# Directly loads boot-menu.ipxe from TFTP
 
-echo Netboot Orchestrator - Loading menu...
+clear
+echo ========================================
+echo Netboot Orchestrator
+echo Boot Menu Chainloader
+echo ========================================
 echo
 
-# Load and execute boot-menu.ipxe script directly from TFTP
-# ${next-server} is set by DHCP (from Unifi router)
-chain tftp://${next-server}/boot-menu.ipxe || (
-    echo Failed to load boot menu!
-    echo Please check network configuration.
-    sleep 5
-    exit
-)
+# Debug: Show detected variables
+echo Detected system information:
+echo - MAC Address: ${mac}
+echo - IP Address: ${ip}
+echo - Next Server (DHCP): ${next-server}
+echo - Gateway: ${gw}
+echo
 
-# If chain fails, try with hardcoded IP
-# BOOT_SERVER_IP will be replaced by entrypoint.sh if available
-chain tftp://192.168.1.50/boot-menu.ipxe || (
-    echo Failed to load boot menu from both servers!
-    sleep 5
-    exit
-)
+# Try to load boot menu
+echo Loading boot menu from TFTP server...
+echo
+
+# Attempt 1: Use DHCP-provided server (${next-server})
+isset ${next-server} && goto chain_menu || goto fallback_ip
+
+:chain_menu
+echo Attempting: tftp://${next-server}/boot-menu.ipxe
+chain tftp://${next-server}/boot-menu.ipxe
+echo Chain from DHCP-server failed!
+sleep 3
+goto fallback_ip
+
+:fallback_ip
+# Attempt 2: Use hardcoded server IP
+echo Attempting: tftp://192.168.1.50/boot-menu.ipxe
+chain tftp://192.168.1.50/boot-menu.ipxe
+echo Chain from hardcoded IP failed!
+sleep 5
+
+# Attempt 3: Try alternate TFTP server format (some iPXE versions need different syntax)
+echo Attempting: tftp://192.168.1.50:69/boot-menu.ipxe
+chain tftp://192.168.1.50:69/boot-menu.ipxe
+echo Failed to load boot menu from any server!
+echo
+echo Please verify:
+echo - TFTP server is running on 192.168.1.50
+echo - boot-menu.ipxe exists in TFTP root
+echo - Network routing allows 10.10.50.0/24 to reach 192.168.1.50
+echo
+sleep 10
+exit
 EOF
 
-echo "[TFTP] ✓ boot.ipxe chainloader created"
+echo "[TFTP] ✓ boot.ipxe chainloader created with debugging"
 
 # Also create boot-menu.ipxe with interactive menu options
 echo "[TFTP] Generating interactive boot menu (boot-menu.ipxe)..."
