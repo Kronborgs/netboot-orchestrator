@@ -1,7 +1,10 @@
 import os
+import logging
 from pathlib import Path
 from typing import List, Dict, Any
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 class FileService:
@@ -10,6 +13,9 @@ class FileService:
     def __init__(self, os_installers_path: str = "/data/os-installers", images_path: str = "/data/images"):
         self.os_installers_path = Path(os_installers_path)
         self.images_path = Path(images_path)
+        
+        logger.info(f"FileService initialized with OS installers path: {self.os_installers_path}")
+        logger.info(f"FileService initialized with images path: {self.images_path}")
         
         # Create directories if they don't exist
         self.os_installers_path.mkdir(parents=True, exist_ok=True)
@@ -20,7 +26,21 @@ class FileService:
         files = []
         total_size = 0
         
+        logger.info(f"Listing OS installer files from: {self.os_installers_path}")
+        logger.info(f"Path exists: {self.os_installers_path.exists()}")
+        logger.info(f"Path is directory: {self.os_installers_path.is_dir()}")
+        
         try:
+            if not self.os_installers_path.exists():
+                logger.warning(f"OS installers path does not exist: {self.os_installers_path}")
+                return {
+                    "path": str(self.os_installers_path),
+                    "files": [],
+                    "total_size_bytes": 0,
+                    "file_count": 0,
+                    "warning": f"Path does not exist: {self.os_installers_path}"
+                }
+            
             for file_path in self.os_installers_path.rglob("*"):
                 if file_path.is_file():
                     size = file_path.stat().st_size
@@ -32,7 +52,10 @@ class FileService:
                         "created_at": datetime.fromtimestamp(file_path.stat().st_ctime).isoformat(),
                         "modified_at": datetime.fromtimestamp(file_path.stat().st_mtime).isoformat()
                     })
+            
+            logger.info(f"Found {len(files)} files in {self.os_installers_path}")
         except Exception as e:
+            logger.error(f"Error listing OS installer files: {str(e)}", exc_info=True)
             return {"error": str(e), "files": [], "total_size_bytes": 0}
         
         return {
