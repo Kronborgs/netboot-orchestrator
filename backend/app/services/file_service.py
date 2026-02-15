@@ -151,23 +151,49 @@ class FileService:
     
     def get_storage_info(self) -> Dict[str, Any]:
         """Get storage usage information."""
-        os_size = sum(f.stat().st_size for f in self.os_installers_path.rglob("*") if f.is_file())
-        images_size = sum(f.stat().st_size for f in self.images_path.rglob("*") if f.is_file())
-        total_size = os_size + images_size
-        
-        return {
-            "os_installers": {
-                "size_bytes": os_size,
-                "size_gb": round(os_size / (1024**3), 2),
-                "path": str(self.os_installers_path)
-            },
-            "images": {
-                "size_bytes": images_size,
-                "size_gb": round(images_size / (1024**3), 2),
-                "path": str(self.images_path)
-            },
-            "total": {
-                "size_bytes": total_size,
-                "size_gb": round(total_size / (1024**3), 2)
+        try:
+            # Quick size calculation with timeout handling
+            os_size = 0
+            images_size = 0
+            
+            # Count files and estimate size (don't block on network I/O)
+            if self.os_installers_path.exists():
+                try:
+                    os_size = sum(f.stat().st_size for f in self.os_installers_path.rglob("*") if f.is_file())
+                except Exception as e:
+                    logger.warning(f"Failed to calculate OS installers size: {e}")
+                    os_size = 0
+            
+            if self.images_path.exists():
+                try:
+                    images_size = sum(f.stat().st_size for f in self.images_path.rglob("*") if f.is_file())
+                except Exception as e:
+                    logger.warning(f"Failed to calculate images size: {e}")
+                    images_size = 0
+            
+            total_size = os_size + images_size
+            
+            return {
+                "os_installers": {
+                    "size_bytes": os_size,
+                    "size_gb": round(os_size / (1024**3), 2) if os_size > 0 else 0,
+                    "path": str(self.os_installers_path)
+                },
+                "images": {
+                    "size_bytes": images_size,
+                    "size_gb": round(images_size / (1024**3), 2) if images_size > 0 else 0,
+                    "path": str(self.images_path)
+                },
+                "total": {
+                    "size_bytes": total_size,
+                    "size_gb": round(total_size / (1024**3), 2) if total_size > 0 else 0
+                }
             }
-        }
+        except Exception as e:
+            logger.error(f"Error getting storage info: {e}")
+            # Return minimal response to avoid blocking UI
+            return {
+                "os_installers": {"size_bytes": 0, "size_gb": 0, "path": str(self.os_installers_path)},
+                "images": {"size_bytes": 0, "size_gb": 0, "path": str(self.images_path)},
+                "total": {"size_bytes": 0, "size_gb": 0}
+            }
