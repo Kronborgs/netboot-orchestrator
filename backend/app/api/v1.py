@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Query
+from fastapi.responses import FileResponse, PlainTextResponse
 from typing import List
 from pathlib import Path
 from ..models import (
@@ -459,4 +460,125 @@ async def create_kernel_set(kernel_set: KernelSet, db: Database = Depends(get_db
 async def get_storage_info(file_service: FileService = Depends(get_file_service)):
     """Get storage usage information."""
     return file_service.get_storage_info()
+
+
+# ==================== BOOT MENU ENDPOINTS ====================
+
+@router.get("/boot/ipxe/menu")
+async def boot_ipxe_menu(file_service: FileService = Depends(get_file_service)):
+    """
+    Generate iPXE boot menu script.
+    This is served to iPXE-enabled clients via DHCP boot chain.
+    """
+    # Get list of available OS installers
+    try:
+        installers = file_service.list_os_installer_files()
+    except Exception:
+        installers = []
+    
+    # Build iPXE menu
+    menu_items = []
+    for installer in installers:
+        # Create safe label (max 60 chars, alphanumeric + spaces)
+        label = installer['filename'][:60]
+        # Add menu item: label -> download URL
+        url = f"http://api:8000/api/v1/os-installers/download/{installer['path']}"
+        menu_items.append(f"  item {label} {label}")
+    
+    # Build the menu script
+    menu_script = """#!ipxe
+# Netboot Orchestrator iPXE Boot Menu
+
+set color_header 0x0000ff
+set color_item 0x00ffff
+set color_selected 0xffffff
+
+:menu
+clear
+cpuid --ext -- x86_64 && set FIRMWARE efi || set FIRMWARE bios
+echo
+echo ====================================
+echo  🚀 Netboot Orchestrator Menu
+echo ====================================
+echo  System: ${FIRMWARE}
+echo  MAC: ${net0/mac}
+echo  IP: ${net0/ip}
+echo
+choose --timeout 15 --default exit selected """ + " || goto exit\n\n"
+    
+    # Add menu items
+    if installers:
+        for installer in installers:
+            label = installer['filename'][:60]
+            url = f"http://api:8000/api/v1/os-installers/download/{installer['path']}"
+            menu_script += f":{label}\n"
+            menu_script += f"echo Downloading {installer['filename']}...\n"
+            menu_script += f"imgdownload {url} || goto menu\n"
+            menu_script += f"boot\n\n"
+    else:
+        menu_script += """echo "No OS installers available!"
+sleep 5
+goto menu
+
+"""
+    
+    menu_script += """:exit
+echo
+echo Exiting iPXE boot menu...
+sleep 2
+"""
+    
+    return PlainTextResponse(menu_script)
+
+
+
+@router.get("/boot/devices/{mac}")
+async def register_boot_device(mac: str, db: Database = Depends(get_db)):
+    """
+    Register a device for network boot.
+    This endpoint is called by iPXE to register the booting device.
+    """
+    device = db.get_device(mac)
+    
+    if not device:
+        # Create new device record if it doesn't exist
+        device = {
+            "mac": mac,
+            "device_type": "unknown",
+            "name": f"Unnamed Device ({mac})",
+            "image_id": None,
+            "installation_target": "http"
+        }
+        db.create_device(mac, device)
+    
+    return {
+        "status": "registered",
+        "mac": mac,
+        "device_info": device
+    }
+
+@router.get("/os-installers/download/{file_path:path}")
+async def download_os_installer(file_path: str, file_service: FileService = Depends(get_file_service)):
+    """
+    Download an OS installer file.
+    This endpoint serves OS installer files to iPXE clients.
+    """
+    try:
+        # Construct full path
+        full_path = Path(os.getenv("OS_INSTALLERS_PATH", "/data/os-installers")) / file_path
+        
+        # Security check - prevent path traversal
+        if not full_path.resolve().is_relative_to(Path(os.getenv("OS_INSTALLERS_PATH", "/data/os-installers")).resolve()):
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Check if file exists
+        if not full_path.exists() or not full_path.is_file():
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        return FileResponse(full_path, filename=full_path.name)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 

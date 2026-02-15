@@ -2,6 +2,7 @@ FROM ubuntu:22.04
 
 RUN apt-get update && apt-get install -y \
     dnsmasq \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY config/ /tftp/config/
