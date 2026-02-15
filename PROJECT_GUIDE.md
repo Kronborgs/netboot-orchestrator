@@ -1,32 +1,109 @@
 # Netboot Orchestrator - Project Guide
 
-**Last Updated:** February 15, 2026 (16:40 UTC)  
-**Current Focus:** iPXE Stage 2 TFTP boot menu testing  
-**Status:** ✅ TFTP Stage 1.5 WORKING - Device boots iPXE firmware and loads undionly.ipxe script (commit abca412)
+**Last Updated:** February 15, 2026 (17:41 UTC)  
+**Current Focus:** iPXE Bootloaders Missing - Need wget Downloads  
+**Status:** 🔧 IN PROGRESS - Boot scripts created but Stage 1 bootloader (undionly.kpxe) NOT FOUND
 
 ---
 
-## 🎯 Project Summary
+## ⚡ Quick Handoff Summary (For Next AI)
 
-**Netboot Orchestrator** is a web-based system for network booting (SD-card-less boot) for both **x86/x64** and **ARM/Raspberry Pi** devices, with centralized management for OS installation and iSCSI disk booting.
+**Situation:**
+- Boot scripts (undionly.ipxe, boot-menu.ipxe) successfully created by entrypoint ✅
+- BUT device still cannot find undionly.kpxe (BIOS Stage 1 bootloader) ❌
+- Error: "PXE-T01: file /data/tftp/undionly.kpxe not found"
 
-### Original Vision (Full Spec)
-- Boot ISO to install Windows/Linux over network
-- Create and mount iSCSI disks for network boot
-- Support x86/x64 architecture
-- Support ARM (Raspberry Pi 4/5) architecture  
-- Modern React-based WebUI for file and device management
-- Fully containerized with Docker
+**Root Cause:** 
+Same volume mount shadowing issue - Dockerfile downloads iPXE binaries but docker-compose volume mount hides them
 
-### Current Reality (Actual Implementation)
-- ✅ **x86/x64 PXE boot infrastructure** - TFTP + iPXE loading, HTTP chainload configured
-- ✅ **API backend** (FastAPI) - Boot menu endpoint working (4,371 boot options)
-- ✅ **Frontend UI** (React) - File browser and setup guide deployed
-- ✅ **TFTP server** (dnsmasq) - Serving iPXE bootloaders successfully
-- ✅ **HTTP server** (nginx) - Available for boot files
-- 🔄 **iSCSI target** (tgtd) - Running but untested
-- ⏳ **RPI4/5 support** - Not yet started
-- ⏳ **Device registration UI** - Not yet started
+**One-Line Fix:**
+Add wget commands to entrypoint-backend.sh to download undionly.kpxe and ipxe.efi into /data/tftp/
+
+**Exact Code Location:**
+- File: `netboot/entrypoint-backend.sh`
+- Insert around line 30 (before "Starting services" message)
+- See "THE FIX NEEDED" section below with exact wget commands
+
+**Test After Fix:**
+```bash
+docker-compose down && docker-compose build --no-cache netboot-backend && docker-compose up -d
+docker logs netboot-backend | grep -E "TFTP|undionly|ERROR"
+# Should show undionly.kpxe and ipxe.efi downloaded successfully
+```
+
+**Expected Outcome:** Device boots all 3 stages and displays menu
+
+---
+
+**DISCOVERY:** Boot scripts created successfully ✅ BUT iPXE bootloaders still missing ❌
+
+**Current Status:**
+```
+✅ undionly.ipxe    (866 bytes) - CREATED BY ENTRYPOINT ✓
+✅ boot.ipxe        (65 bytes)  - CREATED BY ENTRYPOINT ✓
+✅ boot-menu.ipxe   (276 bytes) - CREATED BY ENTRYPOINT ✓
+❌ undionly.kpxe    (70KB)      - NOT FOUND - Device cannot boot Stage 1!
+❌ ipxe.efi         (9.2KB)     - NOT FOUND - UEFI variant missing
+```
+
+**Device Error (17:41 UTC):**
+```
+PXE-T01: file /data/tftp/undionly.kpxe not found for 10.10.50.159
+PXE-E3B: TFTP Error - File Not Found
+```
+
+**Why Still Failing:**
+- Device requests `undionly.kpxe` (BIOS Stage 1 bootloader)
+- Dockerfile RUN downloads these but volume mount shadows them
+- Entrypoint script creates `.ipxe` chainload scripts ✅  
+- But entrypoint does NOT download the actual iPXE binaries ❌
+
+**THE FIX NEEDED (Next Session):**
+
+Add to `netboot/entrypoint-backend.sh` right after creating boot scripts:
+
+```bash
+# Download iPXE binaries if missing
+if [ ! -f /data/tftp/undionly.kpxe ]; then
+    echo "[TFTP] Downloading undionly.kpxe..."
+    wget -q https://boot.ipxe.org/undionly.kpxe -O /data/tftp/undionly.kpxe || echo "ERROR: Failed to download undionly.kpxe"
+fi
+
+if [ ! -f /data/tftp/ipxe.efi ]; then
+    echo "[TFTP] Downloading ipxe.efi..."
+    wget -q https://boot.ipxe.org/ipxe.efi -O /data/tftp/ipxe.efi || echo "ERROR: Failed to download ipxe.efi"
+fi
+
+# Verify files exist
+if [ ! -f /data/tftp/undionly.kpxe ] || [ ! -f /data/tftp/ipxe.efi ]; then
+    echo "ERROR: iPXE bootloaders not available!"
+    exit 1
+fi
+```
+
+**Why This Works:**
+- At runtime, download the actual iPXE binaries
+- Files persist on `/data/tftp/` volume
+- dnsmasq can serve them to devices
+- BIOS devices will boot undionly.kpxe
+- UEFI devices can boot ipxe.efi
+
+**File Locations:** 
+- Location: `netboot/entrypoint-backend.sh` (around line 30, before "Starting services")
+- Add error checking and logging like the boot script creation above
+- Should exit with error if files cannot be downloaded
+
+---
+
+## 📋 Recent Commit History (Last 5)
+
+| Commit | Message | Status |
+|--------|---------|--------|
+| 89fdea5 | Use printf instead of heredoc for TFTP boot script creation | ✅ Latest |
+| bf32c76 | Fix: Create TFTP boot scripts in entrypoint to persist on mounted volume | ✅ |
+| c147a9c | Fix rule ordering: iPXE boot rule must come BEFORE BIOS rule | ✅ Deployed |
+| 7e1d347 | Fix BIOS rule precedence: exclude iPXE devices with tag negation | ❌ Reverted |
+| abca412 | Fix iPXE DHCP boot: serve undionly.ipxe script instead of empty filename | ✅ Deployed |
 
 ---
 
@@ -50,104 +127,367 @@ KEY ARCHITECTURE CHANGE (Feb 15):
 ✅ Consolidated all services into single netboot-backend container
 ✅ Both containers use network_mode: host (direct physical network access)
 ✅ Eliminated Docker bridge network isolation issue
+✅ Added entrypoint script to create boot files at runtime (new)
 ```
 
 ### Container Stack
 ```
 netboot-backend (Single consolidated container on host network):
-├─ FastAPI (Uvicorn) - API server, device management, boot menu generation
-├─ dnsmasq - TFTP server (port 69/udp), DHCP server (port 67/udp)
-├─ nginx - HTTP boot file server (port 8080)
-├─ tgtd - iSCSI target server (port 3260)
-└─ entrypoint-backend.sh - Simple bash script managing all 4 services
+├─ entrypoint-backend.sh
+│  ├─ Create /data/tftp boot scripts (printf) ← NEW FIX
+│  ├─ Start dnsmasq TFTP/DHCP
+│  ├─ Start nginx HTTP server
+│  ├─ Start tgtd iSCSI target
+│  ├─ Start FastAPI on port 8000
+│  └─ Generate boot menu every 5 minutes from API
+├─ FastAPI (Uvicorn) - API, device mgmt, boot menu endpoint
+├─ dnsmasq - TFTP (UDP 69), DHCP (UDP 67)
+├─ nginx - HTTP (port 8080)
+└─ tgtd - iSCSI (port 3260)
 
-netboot-frontend (React SPA container on host network):
-└─ React + Vite compiled to nginx serving (port 30000 → localhost:3000)
+netboot-frontend (React SPA on host network):
+└─ React + Vite served on port 30000
 ```
 
-### Boot Flow (Current x86/x64)
+### TFTP Boot Files
 
-1. **Device DHCP** (via Unifi router) → Option 67 = `undionly.kpxe`
-2. **Stage 1** ✅ (TFTP): Device downloads `undionly.kpxe` from TFTP
-   - dnsmasq listens on UDP 69 (host network, direct physical interface access)
-   - confirmed: "sent /data/tftp/undionly.kpxe to {device_ip}"
-3. **Stage 1.5** ✅ (iPXE Init): undionly.kpxe boots as firmware extension
-   - iPXE 1.21.1+ loads (confirmed in HyperV console)
-   - auto-searches for undionly.ipxe (same basename, .ipxe extension)
-   - undionly.ipxe script found and executes
-4. **Stage 2** ✅ (iPXE Detection & Script Loading - FIXED commit abca412)
-   - After undionly.kpxe boots, iPXE firmware does ANOTHER DHCP request
-   - **KEY FIX:** dnsmasq now matches vendor class ID (option 60 = *iPXE*) → responds with `undionly.ipxe` instead of empty filename
-   - **Why this matters:** Previous config served empty filename to iPXE → device searched TFTP for default boot file → found undionly.kpxe again → infinite loop
-   - **New behavior:** iPXE gets told to load undionly.ipxe → downloads and executes plaintext script → chains to `tftp://192.168.1.50/boot-menu.ipxe`
-   - undionly.ipxe script executes: `dhcp` → `chain tftp://192.168.1.50/boot-menu.ipxe`
-5. **Stage 3** (Boot Menu): TFTP serves boot-menu.ipxe with menu selection
-6. **User Selection & Boot**: Device boots selected installer or iSCSI disk image
-
-### Root Cause Analysis - Network Isolation (RESOLVED ✅)
-
-**Problem (Feb 15 morning):**
-- Devices couldn't reach TFTP despite requests being sent
-- DHCP and HTTP chainload failing
-- **Discovery:** Same-VLAN device (192.168.1.73) ALSO failed - proving NOT a cross-VLAN routing issue
-- **Root cause:** TFTP/dnsmasq ran in Docker bridge network (netboot-orchestrator_netboot), isolated from physical network
-- Device DHCP/TFTP requests on physical interface → bridge network container never received them
-
-**Solution Applied (Feb 15 14:45):**
-- ✅ Consolidated all services into single `netboot-backend` container
-- ✅ Added `network_mode: host` to docker-compose.yml
-- ✅ Services now listen directly on host network interfaces
-- ✅ Removed supervisor (caused logging errors), replaced with simple bash entrypoint script
-- ✅ All services start in background, FastAPI foreground as main process
-
-### Boot Files Location (TFTP Root)
+**Current Status (Feb 15, 17:41):**
 ```
 /data/tftp/
-├── undionly.kpxe    (70KB - BIOS bootloader) ✅ serving
-├── ipxe.efi         (9.2KB - UEFI bootloader) ✅ serving
-├── boot.ipxe        (900B - Stage 2 auto-chainload script)
-├── undionly.ipxe    (989B - Auto-boot script [NEW])
-└── boot-menu.ipxe   (658B - Fallback menu)
+├── undionly.kpxe    (70KB - BIOS Stage 1)       ❌ MISSING - DEVICE CANNOT BOOT
+├── ipxe.efi         (9.2KB - UEFI Stage 1)      ❌ MISSING
+├── undionly.ipxe    (1.2KB - Stage 1.5 script)  ✅ CREATED BY ENTRYPOINT
+│   └─ Chains to: tftp://192.168.1.50/boot-menu.ipxe
+├── boot-menu.ipxe   (276 bytes - Boot menu)     ✅ CREATED BY ENTRYPOINT  
+└── boot.ipxe        (65 bytes - Backup chain)   ✅ CREATED BY ENTRYPOINT
+```
+
+**What's Working:**
+- ✅ Entrypoint script successfully creates .ipxe boot scripts
+- ✅ Files are created with correct permissions
+- ✅ dnsmasq configuration correct (rules, TFTP root)
+- ✅ FastAPI generating boot menu
+
+**What's Not Working:**
+- ❌ ipxe binaries (undionly.kpxe, ipxe.efi) absent
+- ❌ Device can request DHCP → get boot filename
+- ❌ Device tries to TFTP undionly.kpxe → FILE NOT FOUND
+- ❌ Cannot progress to Stage 1.5 (iPXE firmware)
+
+### Boot Flow (Current Status - Feb 15, 17:41)
+
+**Stage 1: BIOS PXE Load** ❌ BLOCKED
+```
+Device DHCP → Unifi responds: Option 67 = undionly.kpxe
+Device TFTP → 192.168.1.50:69 → Requests undionly.kpxe
+Expected: 70KB binary file
+Actual: PXE-T01: file /data/tftp/undionly.kpxe not found
+Status: ❌ FILE NOT FOUND - Cannot download Stage 1 bootloader
+```
+
+**Stage 1.5: iPXE Firmware Init** ⏸️ BLOCKED (waiting for Stage 1)
+```
+Would receive undionly.kpxe → Loads iPXE 1.21.1+ firmware
+Searches for undionly.ipxe via TFTP
+Previously captured: Device reaches iPXE shell ✅ (in earlier session)
+Current: Cannot reach because Stage 1 binary missing
+```
+
+**Stage 2: Boot Menu** ✅ READY TO TEST (once Stage 1 fixed)
+```
+undionly.ipxe script (created by entrypoint) chains to boot-menu.ipxe
+Boot menu displays 279 iPXE options from API
+User selects option, device boots installer
+Ready to deploy once iPXE binaries available
 ```
 
 ---
 
-## 📋 Current Status
+## 🔍 Technical Details - The File Missing Issue
 
-### ✅ Architecture & Infrastructure Completed
-- [x] **Consolidated Backend Architecture** (Feb 15) - All services in single container
-  - TFTP server (dnsmasq, UDP 69)
-  - DHCP server (dnsmasq, UDP 67)  
-  - HTTP server (nginx, port 8080)
-  - iSCSI target (tgtd, port 3260)
-  - FastAPI REST API (port 8000)
-- [x] **Host Network Mode** (Feb 15) - Direct physical network access, no bridge isolation
-- [x] **Simplified Service Management** (Feb 15) - Bash entrypoint script replaces supervisor
-- [x] **Docker Image Build** (Feb 15) - Successfully builds 46.4s, all services included
-- [x] TFTP service deployment (dnsmasq v2.90)
-- [x] iPXE bootloader downloads (undionly.kpxe, ipxe.efi)
-- [x] Boot script infrastructure (boot.ipxe, undionly.ipxe, boot-menu.ipxe)
-- [x] Multi-VLAN network routing (tested TCP/UDP)
-- [x] API endpoint creation (`/api/v1/boot/ipxe/menu`) - **4,371 options generated**
-- [x] Frontend UI (folder browser, setup guide)
-- [x] TFTP Stage 1 working (undionly.kpxe downloads confirmed)
-- [x] iPXE Stage 1.5 working (firmware detected in HyperV)
-- [x] **iPXE Boot Loop Fixed** (Feb 15, 15:30) - dnsmasq vendor detection prevents infinite redownload
+### Problem Sequence
+1. ✅ Dockerfile RUN layer creates `/data/tftp/undionly.ipxe`
+2. ✅ Image builds successfully with files in layer
+3. ❌ docker-compose.yml has `volumes: - ./data:/data`
+4. ❌ Volume mount overlay REPLACES container's `/data` directory
+5. ❌ Files from RUN layer are shadowed (inaccessible)
+6. ❌ Device requests undionly.ipxe → dnsmasq looks in `/data/tftp/` → FILE NOT FOUND
 
-### 🔄 Next Phase - Testing & Validation
-- [x] **dnsmasq Configuration Fixed** (Feb 15, 16:10) - Deployed to Unraid
-- [x] **TFTP Stage 1 Test** - Device downloads undionly.kpxe ✅ WORKING
-  - Verify: Device gets DHCP IP on 10.10.50.x ✅
-  - Verify: TFTP connects to 192.168.1.50:69 ✅
-  - Verify: undionly.kpxe (70KB) downloads successfully ✅
-  - Real Device: 10.10.50.159 successfully loaded undionly.kpxe via TFTP
-- [x] **iPXE Stage 1.5 Test** - undionly.kpxe boots and executes undionly.ipxe ✅ WORKING
-  - Verify: iPXE 1.21.1+ firmware initializes ✅
-  - Verify: undionly.ipxe script loads from TFTP ✅
-  - Verify: No boot loop (DHCP doesn't return undionly.kpxe again) ✅
-  - Real Device: iPXE shell accessible, firmware ready for chainload
-- [ ] **End-to-End PXE Boot Test** (Device 10.10.50.159 or 192.168.1.73)
-  - Stage 1: TFTP undionly.kpxe downloads ✅
+### Solution: Runtime File Creation
+1. ✅ Moved file creation from Dockerfile RUN to entrypoint script
+2. ✅ Entrypoint executes **after** volume mounts are active
+3. ✅ Files created in mounted `/data/tftp/` volume
+4. ✅ Persist between container restarts
+5. ✅ Device requests undionly.ipxe → dnsmasq finds file → SUCCESS
+
+### Why Printf Over Heredoc
+- Heredoc syntax can have issues in shell scripts
+- `printf` is more portable and reliable
+- Single-line format easier to debug in Docker build output
+
+---
+
+## 📊 Service Status (Feb 15, 17:00)
+
+| Service | Status | Purpose |
+|---------|--------|---------|
+| dnsmasq v2.90 | ✅ Running | TFTP/DHCP server |
+| FastAPI | ✅ Running | Boot menu API |
+| nginx | ✅ Running | HTTP boot files |
+| tgtd | ✅ Running | iSCSI target |
+| entrypoint | ✅ Fixed | Creates boot scripts at startup |
+| **TFTP Files** | 🔧 Fixing | Boot scripts now created by entrypoint |
+
+---
+
+## 🎯 Boot Process Summary
+
+```
+Device Powers On
+    ↓
+DHCP Request (10.10.50.x VLAN)
+    ↓
+Unifi Router: "Boot file = undionly.kpxe on 192.168.1.50"
+    ↓
+TFTP to 192.168.1.50:69 → undionly.kpxe ✅ WORKS
+    ↓
+Device Downloads 70KB binary
+    ↓
+PXE/BIOS executes undionly.kpxe → iPXE firmware loads
+    ↓
+iPXE boots → Searches for undionly.ipxe (same filename, .ipxe extension)
+    ↓
+iPXE DHCP Request (with vendor class = *iPXE*)
+    ↓
+dnsmasq matches iPXE tag → Responds: "Load undionly.ipxe"
+    ↓
+iPXE TFTP → 192.168.1.50:69 → undionly.ipxe ✅ NOW FIXED
+    ↓
+undionly.ipxe script executes:
+    - dhcp (get IP again)
+    - chain tftp://192.168.1.50/boot-menu.ipxe
+    ↓
+TFTP → boot-menu.ipxe loaded
+    ↓
+Boot Menu Displayed (279 options from API) ⏳ Testing
+    ↓
+User Selects Boot Option
+    ↓
+Device Boots Installer or iSCSI Image
+```
+
+---
+
+## ✅ Completed Tasks
+
+- [x] PXE TFTP infrastructure setup
+- [x] iPXE bootloader downloads  
+- [x] dnsmasq TFTP/DHCP configuration
+- [x] FastAPI boot menu API (279 options)
+- [x] Docker containerization
+- [x] Host network mode (fixed isolation)
+- [x] Consolidated backend services
+- [x] TFTP Stage 1 tested (undionly.kpxe serves)
+- [x] iPXE Stage 1.5 tested (firmware initializes)
+- [x] DHCP boot rule ordering fixed (iPXE before BIOS)
+- [x] Boot script runtime creation (entrypoint)
+
+---
+
+## 🔄 Next Steps (CRITICAL - Feb 15, 17:41)
+
+### ⚠️ BLOCKER: iPXE Bootloaders Missing
+
+**Device Error Log (17:41 UTC):**
+```
+PXE-T01: file /data/tftp/undionly.kpxe not found for 10.10.50.159
+PXE-E3B: TFTP Error - File Not Found
+```
+
+**What Needs to Happen Next Session:**
+
+1. **ADD iPXE Binary Downloads to entrypoint-backend.sh**
+   - Location: `netboot/entrypoint-backend.sh` (lines 30-50, before service startup)
+   - Add wget commands to download:
+     - `https://boot.ipxe.org/undionly.kpxe` → `/data/tftp/undionly.kpxe`
+     - `https://boot.ipxe.org/ipxe.efi` → `/data/tftp/ipxe.efi`
+   - Add error checking (exit if download fails)
+   - Add verification (check file exists and has content)
+   - See "THE FIX NEEDED" section above with exact code
+
+2. **Test Locally**
+   ```bash
+   docker-compose down
+   docker-compose build --no-cache netboot-backend
+   docker-compose up -d
+   docker logs netboot-backend | grep -E "TFTP|undionly|ERROR"
+   ```
+   Expected output:
+   ```
+   [TFTP] Downloading undionly.kpxe...
+   [TFTP] Downloading ipxe.efi...
+   [TFTP] Boot scripts created:
+   -rw-r--r-- /data/tftp/undionly.kpxe
+   -rw-r--r-- /data/tftp/ipxe.efi
+   -rw-r--r-- /data/tftp/undionly.ipxe
+   ```
+
+3. **Deploy to Unraid**
+   ```bash
+   cd /mnt/user/appdata/netboot-orchestrator
+   git pull origin main
+   docker-compose down
+   docker-compose build --no-cache netboot-backend
+   docker-compose up -d
+   ```
+
+4. **Verify Files Exist on Unraid**
+   ```bash
+   ls -lah /mnt/user/appdata/netboot-orchestrator/data/tftp/
+   # Should show:
+   # -rw-r--r-- undionly.kpxe  (70KB)
+   # -rw-r--r-- ipxe.efi       (9.2KB)
+   # -rw-r--r-- undionly.ipxe  (1.2KB)
+   # -rw-r--r-- boot-menu.ipxe (276B)
+   ```
+
+5. **Boot Device Test**
+   - Device should download undionly.kpxe ✅
+   - Device should boot to iPXE firmware ✅
+   - Device should load boot menu ✅
+   - User can select boot option ✅
+
+**Why This Fix Works:**
+- Dockerfile creates files but volume mount shadows them ❌
+- Entrypoint creates .ipxe scripts but doesn't download binaries ❌
+- **Solution:** Add wget downloads to entrypoint ✅
+- Files created at runtime on mounted volume ✅
+- Persist between restarts ✅
+- Device can access them ✅
+
+---
+
+## ✅ Completed Tasks
+
+- [x] PXE TFTP infrastructure setup
+- [x] dnsmasq TFTP/DHCP configuration
+- [x] FastAPI boot menu API (279 options)
+- [x] Docker containerization (consolidated backend)
+- [x] Host network mode (fixed isolation)
+- [x] DHCP boot rule ordering (iPXE before BIOS)
+- [x] Boot scripts created by entrypoint (undionly.ipxe, boot-menu.ipxe)
+- [ ] **iPXE bootloaders downloaded by entrypoint (undionly.kpxe, ipxe.efi)** ← NEXT
+
+---
+
+## 🎯 Handoff for Next Session (Feb 16)
+
+**Current Exact Problem:**
+Device cannot find `undionly.kpxe` - Stage 1 bootloader missing from `/data/tftp/`
+
+**Root Cause:**
+Docker volume mount shadows Dockerfile files → entrypoint needed for runtime creation
+
+**Partial Solution Deployed (Commits bf32c76, 89fdea5):**
+- ✅ Boot scripts (.ipxe files) created by entrypoint
+- ❌ iPXE binaries still not downloaded
+
+**What Was Discovered (Feb 15, 17:41 UTC):**
+```
+Container logs show:
+✅ [TFTP] undionly.ipxe created (866 bytes)
+✅ [TFTP] boot.ipxe created (65 bytes)  
+✅ [TFTP] boot-menu.ipxe created (276 bytes)
+❌ Device error: PXE-T01: file /data/tftp/undionly.kpxe not found
+```
+
+**Code Change Needed:**
+- File: `netboot/entrypoint-backend.sh`
+- Add 12-15 lines of wget + error checking around line 30
+- Download undionly.kpxe and ipxe.efi from boot.ipxe.org
+- Verify files exist before starting services
+- See code example in "THE FIX NEEDED" section above
+
+**Expected Timeline After Fix:**
+1. Add wget commands to entrypoint (~10 minutes coding)
+2. Test locally (~2 minutes)
+3. Push to GitHub
+4. Deploy to Unraid (`git pull && docker-compose up -d`)
+5. Boot device and verify all stages work
+6. **Success:** Device boots to menu → selects OS → installs
+
+---
+
+## 📝 Code References
+
+### Entrypoint Script (entrypoint-backend.sh)
+- **Location:** `netboot/entrypoint-backend.sh` (lines 1-43)
+- **Key Change:** Now creates boot scripts using printf before starting services
+- **Files Created:**
+  - /data/tftp/undionly.ipxe (chains to TFTP boot menu)
+  - /data/tftp/boot.ipxe (HTTP chainload backup)
+  - /data/tftp/boot-menu.ipxe (menu placeholder)
+
+### dnsmasq Configuration (Dockerfile.backend)
+- **Location:** `netboot/Dockerfile.backend` (lines 50+)
+- **DHCP Boot Rules:**
+  ```
+  dhcp-boot=tag:ipxe,undionly.ipxe,192.168.1.50,192.168.1.50    ← FIRST (iPXE)
+  dhcp-boot=tag:bios,undionly.kpxe,192.168.1.50,192.168.1.50    ← SECOND (BIOS)
+  ```
+  - PXE/BIOS sends "bios" tag → gets undionly.kpxe
+  - iPXE firmware sends "bios" AND "ipxe" tags → dnsmasq checks first rule → gets undionly.ipxe
+
+### Docker Volumes (docker-compose.yml)
+- **Issue:** `./data:/data` shadows container files
+- **Solution:** entrypoint script creates files after mount is active
+- **Files Persist:** Mounted volume guarantees persistence
+
+---
+
+## 🐛 Known Issues & Workarounds
+
+| Issue | Cause | Workaround | Status |
+|-------|-------|-----------|--------|
+| "Can't find file" error | Boot scripts not in /data/tftp | Rebuild with cache bust | ✅ Fixed |
+| Infinite undionly.kpxe loop | BIOS rule matched twice | Rule ordering (iPXE first) | ✅ Fixed |
+| Network isolation | Docker bridge mode | Use host network mode | ✅ Fixed |
+| DHCP vendor not matching | Syntax issue | Corrected dhcp-match rules | ✅ Fixed |
+
+---
+
+## 🚀 End-to-End Test Plan (When Ready)
+
+**Prerequisites:**
+- Boot VLAN device (10.10.50.x) or 192.168.1.x device configured
+- Unraid server running latest code (commit 89fdea5+)
+
+**Test Sequence:**
+1. Power on device
+2. Watch PXE boot process:
+   - [ ] Device gets DHCP IP (10.10.50.x or 192.168.1.x)
+   - [ ] "Searching for TFTP server..."
+   - [ ] "Contacting TFTP server..."
+   - [ ] "Downloading undionly.kpxe..."
+   - [ ] "75810 bytes [.....OK]"
+   - [ ] iPXE 1.21.1+ banner appears
+   - [ ] "Searching for undionly.ipxe..."
+   - [ ] undionly.ipxe script loads
+   - [ ] "chain tftp://192.168.1.50/boot-menu.ipxe"
+   - [ ] Boot menu appears with options
+3. Select option (e.g., "Windows Server 2022")
+4. Device boots installer or iSCSI image
+
+**Success Criteria:**
+- ✅ All stages complete without errors
+- ✅ Boot menu displays properly formatted options
+- ✅ User selection and boot works
+- ✅ Device boots to OS installer/disk
+
+---
+
+**Document maintained for AI handoff. All recent fixes documented in commit history on GitHub (Kronborgs/netboot-orchestrator).**
+
   - Stage 1.5: iPXE firmware initializes ✅
   - **Stage 2 (NEW FIX - commit abca412):** iPXE DHCP detection → load undionly.ipxe script 🔄
     - **Issue Fixed:** DHCP was serving empty boot filename to iPXE devices → device redownloaded undionly.kpxe in a loop
