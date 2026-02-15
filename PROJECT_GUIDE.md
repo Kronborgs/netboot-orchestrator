@@ -1,8 +1,8 @@
 # Netboot Orchestrator - Project Guide
 
 **Last Updated:** February 15, 2026  
-**Current Focus:** Fixing x86/x64 PXE boot chain (DHCP loop issue)  
-**Status:** 🔄 In Progress - Stage 2 bootloader testing
+**Current Focus:** Fixing x86/x64 PXE boot chain - Stage 2 network failure  
+**Status:** 🔄 In Progress - iPXE Stage 2 DHCP/HTTP chainload debugging
 
 ---
 
@@ -19,10 +19,10 @@
 - Fully containerized with Docker
 
 ### Current Reality (Actual Implementation)
-- ✅ **x86/x64 PXE boot infrastructure** - TFTP + iPXE working, HTTP chainload implemented
-- ✅ **API backend** (FastAPI) - Device registration endpoints ready
+- ✅ **x86/x64 PXE boot infrastructure** - TFTP + iPXE loading, HTTP chainload configured
+- ✅ **API backend** (FastAPI) - Boot menu endpoint working (4,371 boot options)
 - ✅ **Frontend UI** (React) - File browser and setup guide deployed
-- ✅ **TFTP server** (dnsmasq) - Serving iPXE bootloaders
+- ✅ **TFTP server** (dnsmasq) - Serving iPXE bootloaders successfully
 - ✅ **HTTP server** (nginx) - Available for boot files
 - 🔄 **iSCSI target** (tgtd) - Running but untested
 - ⏳ **RPI4/5 support** - Not yet started
@@ -34,32 +34,42 @@
 
 ### Network Setup
 ```
-Device (10.10.50.x)  ←DHCP/PXE→  Unraid Server (192.168.1.50)
-                                    ├─ TFTP (UDP 69)      ← undionly.kpxe
-                                    ├─ HTTP (TCP 8000)    ← boot script via API
-                                    ├─ iSCSI (TCP 3260)   ← disk images
-                                    └─ Frontend (TCP 3000/30000)
+Device (10.10.50.159)  ←DHCP/PXE→  Unraid Server (192.168.1.50)
+  (HyperV or Real HW)                ├─ TFTP (UDP 69)      ← undionly.kpxe ✅
+                                     ├─ HTTP (TCP 8000)    ← boot menu via API
+                                     ├─ iSCSI (TCP 3260)   ← disk images
+                                     └─ Frontend (TCP 30000/3000)
+     
+Cross-VLAN Routing: Via Unifi controller/switch
 ```
 
 ### Boot Flow (Current x86/x64)
 
-1. **Device DHCP** → Unifi router provides Option 67 = `undionly.kpxe`
-2. **Stage 1** (TFTP): Device downloads `undionly.kpxe` from TFTP server
-3. **Stage 1.5** (iPXE Init): undionly.kpxe loads and does DHCP again
-   - ✅ **NEW FIX**: dnsmasq detects iPXE (option 175) → serves `boot.ipxe` instead of repeating undionly
-4. **Stage 2** (HTTP Chainload): boot.ipxe chains to API endpoint:
-   ```
-   chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu
-   ```
-5. **Menu Display**: API returns iPXE script showing boot options
-6. **User selects** option → boots installer or iSCSI disk
+1. **Device DHCP** (via Unifi router) → Option 67 = `undionly.kpxe`
+2. **Stage 1** ✅ (TFTP): Device downloads `undionly.kpxe` from TFTP
+   - confirmed in dnsmasq logs: "sent /data/tftp/undionly.kpxe to 10.10.50.159"
+3. **Stage 1.5** ✅ (iPXE Init): undionly.kpxe boots as firmware extension
+   - iPXE 1.21.1+ loads (confirmed in HyperV console)
+   - auto-searches for undionly.ipxe (same basename, .ipxe extension)
+   - undionly.ipxe script found and executes
+4. **Stage 2** ❌ (DHCP + HTTP Chainload): **CURRENTLY FAILING**
+   - undionly.ipxe executes: `dhcp` → `chain http://192.168.1.50:8000/api/v1/boot/ipxe/menu`
+   - **Problem:** Device shows error after DHCP stage, before HTTP request
+   - **Root cause TBD:** Could be:
+     - Cross-VLAN DHCP relay not configured on Unifi
+     - dnsmasq DHCP not responding (ranges not loading)
+     - Cross-VLAN HTTP routing blocked
+     - iPXE timeout/retry logic
+5. **Menu Display** (pending Stage 2 fix): API returns 4,371 boot options
+6. **User select** (pending): boots installer or iSCSI disk
 
 ### Boot Files Location (TFTP Root)
 ```
 /data/tftp/
-├── undionly.kpxe    (70KB - BIOS bootloader)
-├── ipxe.efi         (9.2KB - UEFI bootloader)
-├── boot.ipxe        (1.3KB - Stage 2 auto-chainload script)
+├── undionly.kpxe    (70KB - BIOS bootloader) ✅ serving
+├── ipxe.efi         (9.2KB - UEFI bootloader) ✅ serving
+├── boot.ipxe        (900B - Stage 2 auto-chainload script)
+├── undionly.ipxe    (989B - Auto-boot script [NEW])
 └── boot-menu.ipxe   (658B - Fallback menu)
 ```
 
@@ -70,34 +80,40 @@ Device (10.10.50.x)  ←DHCP/PXE→  Unraid Server (192.168.1.50)
 ### ✅ Completed
 - [x] TFTP service deployment (dnsmasq v2.90)
 - [x] iPXE bootloader downloads (undionly.kpxe, ipxe.efi)
-- [x] Boot script infrastructure (boot.ipxe, boot-menu.ipxe)
+- [x] Boot script infrastructure (boot.ipxe, undionly.ipxe, boot-menu.ipxe)
 - [x] Multi-VLAN network routing (tested TCP/UDP)
-- [x] API endpoint creation (`/api/v1/boot/ipxe/menu`)
-- [x] Docker infrastructure (build, deployment, volumes)
+- [x] API endpoint creation (`/api/v1/boot/ipxe/menu`) - **4,371 options generated**
+- [x] Docker infrastructure (all 5 containers running)
 - [x] Frontend UI (folder browser, setup guide)
-- [x] **VLAN TFTP issue diagnosed** → solution: use HTTP instead
-- [x] **API bug identified & fixed** → dict vs list iteration (commit 55da7dd)
-- [x] **dnsmasq DHCP loop fixed** → serve boot.ipxe to iPXE clients (commit 1193e3e)
+- [x] **TFTP Stage 1** - confirmed working (undionly.kpxe downloads)
+- [x] **iPXE Stage 1.5** - confirmed loading (firmware detected in HyperV)
+- [x] **Boot script syntax** - fixed line breaks, single-line commands (commit a48527e)
+- [x] **DHCP server config** - ranges defined, log-dhcp enabled (commits f615ceb, 8bf9471, 808890a)
 
-### 🔄 In Progress
-- **x86/x64 PXE boot verification** (85% complete - SYNTAX ERRORS FIXED)
-  - ✅ Stage 1: undionly.kpxe downloads successfully (70KB) 
-  - ✅ Stage 1.5: undionly.kpxe boots (iPXE shell accessible via Ctrl+B)
-  - ✅ Stage 2: undionly.ipxe script now has correct syntax (commit a48527e)
-  - **Latest Improvements:**
-    - Fixed iPXE script syntax errors (removed line breaks in commands)
-    - Script uses simple, proven iPXE commands
-    - Simplified error handling and shell fallback
-  - **Current Status:** Ready for re-test on HyperV with fixed syntax
-  - **When Testing:** Device should see "Initializing network with DHCP..." message if script executes properly
+### 🔄 In Progress - **BLOCKING ISSUE**
+- **x86/x64 Stage 2 Failure** (Current problem)
+  - ✅ Stage 1: undionly.kpxe downloads successfully (TFTP confirmed)
+  - ✅ Stage 1.5: iPXE firmware loads (HyperV console shows boot output)
+  - ❌ Stage 2: Device fails after DHCP stage
+  - **Error Symptoms:**
+    - HyperV VM: Shows network configuration, then fails with "Network unreachable"
+    - dnsmasq logs: No DHCP activity logged (suspicious - should see DHCP Discover/Offer)
+    - Logs show: "TFTP Aborted" from device (timeout after file download)
+  - **Diagnostic Status:**
+    - dnsmasq DHCP ranges not appearing in logs (configured but not activating)
+    - Cross-VLAN DHCP relay on Unifi **likely not configured**
+    - HTTP chainload not reached (blocked at DHCP stage)
+  - **Next Step:** Need actual error message from VM console to diagnose further
 
 ### ⏳ Pending
-- [ ] Fix HTTP chainload network connectivity (blocking test)
-- [ ] ARM/RPI4/5 U-Boot bootloader compilation
-- [ ] Device MAC registration WebUI
-- [ ] Device type selector (x86 vs RPI in menu)
+- [ ] **Stage 2 Network Fix** - determine root cause and implement solution
+  - Option A: Configure DHCP relay on Unifi router
+  - Option B: Simplify boot to use only router DHCP + HTTP
+  - Option C: Test on same VLAN as Unraid (192.168.1.x)
 - [ ] iSCSI boot testing
-- [ ] OS installer upload and menu population
+- [ ] ARM/RPI4/5 U-Boot bootloader
+- [ ] Device MAC registration UI
+- [ ] Device type selector in menu
 
 ---
 
