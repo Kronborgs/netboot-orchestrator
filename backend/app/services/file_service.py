@@ -21,6 +21,76 @@ class FileService:
         self.os_installers_path.mkdir(parents=True, exist_ok=True)
         self.images_path.mkdir(parents=True, exist_ok=True)
     
+    def _build_folder_tree(self, folder_path: Path, base_path: Path) -> Dict[str, Any]:
+        """Recursively build folder tree structure."""
+        tree = {
+            "name": folder_path.name or folder_path.as_posix(),
+            "type": "folder",
+            "path": str(folder_path.relative_to(base_path)) if folder_path != base_path else "",
+            "children": [],
+            "size_bytes": 0
+        }
+        
+        try:
+            for item in sorted(folder_path.iterdir(), key=lambda x: (x.is_file(), x.name)):
+                if item.is_dir():
+                    subtree = self._build_folder_tree(item, base_path)
+                    tree["children"].append(subtree)
+                    tree["size_bytes"] += subtree["size_bytes"]
+                elif item.is_file():
+                    stat = item.stat()
+                    size = stat.st_size
+                    tree["children"].append({
+                        "name": item.name,
+                        "type": "file",
+                        "path": str(item.relative_to(base_path)),
+                        "size_bytes": size,
+                        "size_display": self._format_bytes(size),
+                        "created_at": datetime.fromtimestamp(stat.st_ctime).isoformat(),
+                        "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat()
+                    })
+                    tree["size_bytes"] += size
+        except PermissionError:
+            logger.warning(f"Permission denied accessing folder: {folder_path}")
+        
+        return tree
+    
+    @staticmethod
+    def _format_bytes(bytes_value: int) -> str:
+        """Format bytes to human readable format."""
+        for size_name in ["B", "KB", "MB", "GB", "TB"]:
+            if bytes_value < 1024.0:
+                return f"{bytes_value:.2f} {size_name}"
+            bytes_value /= 1024.0
+        return f"{bytes_value:.2f} PB"
+    
+    def get_folder_tree(self, is_images: bool = False) -> Dict[str, Any]:
+        """Get folder structure as a tree."""
+        base_path = self.images_path if is_images else self.os_installers_path
+        
+        if not base_path.exists():
+            return {
+                "error": f"Path does not exist: {base_path}",
+                "path": str(base_path),
+                "tree": None
+            }
+        
+        try:
+            tree = self._build_folder_tree(base_path, base_path)
+            return {
+                "path": str(base_path),
+                "tree": tree,
+                "total_size_bytes": tree["size_bytes"],
+                "total_size_display": self._format_bytes(tree["size_bytes"])
+            }
+        except Exception as e:
+            logger.error(f"Error building folder tree: {e}")
+            return {
+                "error": str(e),
+                "path": str(base_path),
+                "tree": None
+            }
+    
     def list_os_installer_files(self) -> Dict[str, Any]:
         """List all OS installer files in the directory."""
         files = []

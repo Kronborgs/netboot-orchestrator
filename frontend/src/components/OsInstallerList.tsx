@@ -24,8 +24,107 @@ interface StorageInfo {
   };
 }
 
+interface FolderNode {
+  name: string;
+  type: 'folder' | 'file';
+  path: string;
+  children?: FolderNode[];
+  size_bytes: number;
+  size_display?: string;
+  created_at?: string;
+  modified_at?: string;
+}
+
+const FolderItem: React.FC<{ node: FolderNode; level: number; onDelete: (path: string) => void }> = ({ 
+  node, 
+  level,
+  onDelete 
+}) => {
+  const [expanded, setExpanded] = useState(level === 0);
+
+  if (node.type === 'file') {
+    return (
+      <div style={{ 
+        paddingLeft: `${level * 20 + 8}px`, 
+        paddingRight: '8px',
+        paddingTop: '8px',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        borderBottom: '1px solid var(--border-color)',
+        minHeight: '32px'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
+          <span>📄</span>
+          <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+            <span style={{ fontWeight: '500' }}>{node.name}</span>
+            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+              {node.size_display}
+            </span>
+          </div>
+        </div>
+        <button
+          className="btn-danger btn-small"
+          onClick={() => onDelete(node.path)}
+          style={{ marginLeft: '12px' }}
+        >
+          Delete
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ 
+        paddingLeft: `${level * 20}px`,
+        paddingRight: '8px',
+        paddingTop: '8px',
+        paddingBottom: '8px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        cursor: 'pointer',
+        backgroundColor: level % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)',
+        borderBottom: level === 0 ? '1px solid var(--border-color)' : 'none'
+      }}
+      onClick={() => setExpanded(!expanded)}>
+        <span style={{ 
+          width: '20px', 
+          display: 'flex',
+          justifyContent: 'center',
+          transition: 'transform 0.2s',
+          transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)'
+        }}>
+          {node.children && node.children.length > 0 ? '▶' : ''}
+        </span>
+        <span style={{ fontSize: '16px' }}>📁</span>
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+          <span style={{ fontWeight: '500' }}>{node.name || 'root'}</span>
+          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+            {node.size_display}
+          </span>
+        </div>
+      </div>
+      
+      {expanded && node.children && (
+        <div>
+          {node.children.map((child, idx) => (
+            <FolderItem 
+              key={`${child.path}-${idx}`} 
+              node={child} 
+              level={level + 1}
+              onDelete={onDelete}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const OsInstallerList: React.FC = () => {
-  const [files, setFiles] = useState<OSFile[]>([]);
+  const [folderTree, setFolderTree] = useState<FolderNode | null>(null);
   const [storage, setStorage] = useState<StorageInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -33,20 +132,20 @@ export const OsInstallerList: React.FC = () => {
   const [dragOver, setDragOver] = useState(false);
 
   useEffect(() => {
-    fetchFiles();
+    fetchFolderTree();
     fetchStorageInfo();
   }, []);
 
-  const fetchFiles = async () => {
+  const fetchFolderTree = async () => {
     setLoading(true);
     try {
-      const res = await apiFetch(`/api/v1/os-installers/files`);
+      const res = await apiFetch(`/api/v1/os-installers/tree`);
       if (res.ok) {
         const data = await res.json();
-        setFiles(data.files || []);
+        setFolderTree(data.tree);
       }
     } catch (error) {
-      console.error('Failed to fetch OS installer files:', error);
+      console.error('Failed to fetch folder tree:', error);
     }
     setLoading(false);
   };
@@ -103,7 +202,7 @@ export const OsInstallerList: React.FC = () => {
 
     setUploading(false);
     setUploadProgress(0);
-    await fetchFiles();
+    await fetchFolderTree();
     await fetchStorageInfo();
   };
 
@@ -118,7 +217,7 @@ export const OsInstallerList: React.FC = () => {
         alert(`Failed to delete file: ${res.statusText}`);
         return;
       }
-      await fetchFiles();
+      await fetchFolderTree();
       await fetchStorageInfo();
     } catch (error) {
       console.error('Failed to delete file:', error);
@@ -126,29 +225,11 @@ export const OsInstallerList: React.FC = () => {
     }
   };
 
-  const formatBytes = (bytes: number) => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
-
   return (
     <div className="os-installer-list">
       <div className="card mb-3">
         <div className="card-title">
-          🖥️ Available operating system installers for PXE boot and cloud installations
+          🖥️ Operating system installers & files
         </div>
 
         {storage && (
@@ -234,54 +315,27 @@ export const OsInstallerList: React.FC = () => {
         <div className="loading mt-4">
           <div className="spinner"></div>
         </div>
-      ) : files.length === 0 ? (
-        <div className="card mt-4">
-          <div className="empty-state">
-            <div className="empty-state-icon">📦</div>
-            <h3>No OS installers yet</h3>
-            <p>Upload operating system installers to make them available for provisioning</p>
+      ) : folderTree && folderTree.children && folderTree.children.length > 0 ? (
+        <div className="card" style={{ background: 'var(--bg-secondary)' }}>
+          <div style={{ maxHeight: '500px', overflowY: 'auto' }}>
+            {folderTree.children.map((child, idx) => (
+              <FolderItem 
+                key={`${child.path}-${idx}`} 
+                node={child} 
+                level={0}
+                onDelete={handleDeleteFile}
+              />
+            ))}
           </div>
         </div>
       ) : (
-        <table style={{ marginTop: '24px' }}>
-          <thead>
-            <tr>
-              <th>Filename</th>
-              <th>Size</th>
-              <th>Modified</th>
-              <th style={{ width: '100px' }}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {files.map((file) => (
-              <tr key={file.path}>
-                <td>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span>📄</span>
-                    <div>
-                      <div style={{ fontWeight: '500' }}>{file.filename}</div>
-                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                        {file.path}
-                      </div>
-                    </div>
-                  </div>
-                </td>
-                <td>{formatBytes(file.size_bytes)}</td>
-                <td style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
-                  {formatDate(file.modified_at)}
-                </td>
-                <td>
-                  <button
-                    className="btn-danger btn-small"
-                    onClick={() => handleDeleteFile(file.path)}
-                  >
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="card mt-4">
+          <div className="empty-state">
+            <div className="empty-state-icon">📦</div>
+            <h3>No files yet</h3>
+            <p>Upload operating system installers using drag-and-drop or browse button</p>
+          </div>
+        </div>
       )}
     </div>
   );
