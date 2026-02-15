@@ -7,8 +7,6 @@ RUN apt-get update && apt-get install -y \
     python3 python3-pip \
     # TFTP/DHCP
     dnsmasq curl \
-    # HTTP Server
-    nginx \
     # iSCSI Target
     tgt \
     # Utilities
@@ -28,9 +26,6 @@ WORKDIR /app/backend
 # Copy TFTP config and scripts
 COPY netboot/tftp/config /etc/dnsmasq.d/
 COPY netboot/tftp/scripts /tftp/scripts/
-
-# Copy HTTP/nginx config
-COPY netboot/http/conf /etc/nginx/conf.d/
 
 # Copy entrypoint script
 COPY netboot/entrypoint-backend.sh /entrypoint.sh
@@ -52,8 +47,8 @@ RUN mkdir -p /data/tftp && \
 
 # Create dnsmasq config
 RUN mkdir -p /etc/dnsmasq.d && \
-    printf 'interface=*\nlisten-address=0.0.0.0\nport=69\nenable-tftp\ntftp-root=/data/tftp\ntftp-no-blocksize\ntftp-single-port\ntftp-max=50\nuser=nobody\ngroup=nogroup\nlog-facility=/dev/stdout\nlog-queries\nlog-dhcp\n\n# DHCP Server Configuration\ndhcp-range=192.168.1.100,192.168.1.200,255.255.255.0,24h\ndhcp-range=10.10.50.100,10.10.50.200,255.255.255.0,24h\ndhcp-option=routers,192.168.1.1\ndhcp-option=dns-server,9.9.9.9,1.1.1.1\n\n# PXE/UEFI Boot Detection\ndhcp-match=set:bios,option:client-arch,0\ndhcp-match=set:efi32,option:client-arch,6\ndhcp-match=set:efibc,option:client-arch,7\ndhcp-match=set:efi64,option:client-arch,9\ndhcp-match=set:arm64,option:client-arch,0x0b\ndhcp-match=set:ipxe,175\n\n# Boot File Delivery - MUST specify TFTP server IP\ndhcp-boot=tag:ipxe,boot.ipxe,192.168.1.50,192.168.1.50\ndhcp-boot=tag:bios,undionly.kpxe,192.168.1.50,192.168.1.50\ndhcp-boot=tag:efi64,ipxe.efi,192.168.1.50,192.168.1.50\ndhcp-boot=tag:efi32,ipxe.efi,192.168.1.50,192.168.1.50\ndhcp-boot=tag:efibc,ipxe.efi,192.168.1.50,192.168.1.50\n' > /etc/dnsmasq.d/netboot.conf
+    printf 'interface=*\nlisten-address=0.0.0.0\nport=69\nenable-tftp\ntftp-root=/data/tftp\ntftp-no-blocksize\ntftp-single-port\ntftp-max=50\nuser=nobody\ngroup=nogroup\nlog-facility=/dev/stdout\nlog-queries\nlog-dhcp\n\n# DHCP Server Configuration\ndhcp-range=192.168.1.100,192.168.1.200,255.255.255.0,24h\ndhcp-range=10.10.50.100,10.10.50.200,255.255.255.0,24h\n\n# PXE/UEFI Boot Detection\ndhcp-match=set:bios,option:client-arch,0\ndhcp-match=set:efi32,option:client-arch,6\ndhcp-match=set:efibc,option:client-arch,7\ndhcp-match=set:efi64,option:client-arch,9\ndhcp-match=set:arm64,option:client-arch,0x0b\ndhcp-match=set:ipxe,175\n\n# Boot File Delivery - MUST specify TFTP server IP\ndhcp-boot=tag:ipxe,boot.ipxe,192.168.1.50,192.168.1.50\ndhcp-boot=tag:bios,undionly.kpxe,192.168.1.50,192.168.1.50\ndhcp-boot=tag:efi64,ipxe.efi,192.168.1.50,192.168.1.50\ndhcp-boot=tag:efi32,ipxe.efi,192.168.1.50,192.168.1.50\ndhcp-boot=tag:efibc,ipxe.efi,192.168.1.50,192.168.1.50\n' > /etc/dnsmasq.d/netboot.conf
 
-EXPOSE 69/udp 67/udp 8000 8080 3260
+EXPOSE 69/udp 67/udp 8000 3260
 
 ENTRYPOINT ["/entrypoint.sh"]
