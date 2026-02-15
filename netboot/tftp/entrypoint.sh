@@ -19,54 +19,39 @@ if [ ! -f /data/tftp/ipxe.efi ]; then
     curl -L -o /data/tftp/ipxe.efi https://boot.ipxe.org/ipxe.efi 2>&1 || echo "[TFTP] Warning: Failed to download"
 fi
 
-# Create universal chainloader that detects BIOS/UEFI
-echo "[TFTP] Generating auto-detect chainloader (boot.ipxe)..."
+# Create boot.ipxe - chainloader that directly loads menu
+# (No Stage 2 DHCP needed - loads boot-menu.ipxe directly from TFTP)
+echo "[TFTP] Generating boot.ipxe chainloader..."
 
 cat > /data/tftp/boot.ipxe << 'EOF'
 #!ipxe
-# Netboot Orchestrator - Universal Bootloader
-# Auto-detects BIOS vs UEFI and chains to appropriate bootloader
-# Then shows boot menu
+# Netboot Orchestrator - Boot Chain to Menu
+# Directly loads boot-menu.ipxe from TFTP (no Stage 2 DHCP needed)
 
-echo ========================================
-echo Netboot Orchestrator Boot
-echo ========================================
-echo
-echo Detecting system firmware type...
+echo Netboot Orchestrator - Loading menu...
 echo
 
-# Detect firmware type using platform variable
-# platform: efi (UEFI), bios (legacy), unknown otherwise
-ifdef ${platform} && goto detect_platform || goto detect_arch
+# Load and execute boot-menu.ipxe script directly from TFTP
+# ${next-server} is set by DHCP (from Unifi router)
+chain tftp://${next-server}/boot-menu.ipxe || (
+    echo Failed to load boot menu!
+    echo Please check network configuration.
+    sleep 5
+    exit
+)
 
-:detect_platform
-iseq ${platform} efi && goto load_uefi || goto load_bios
-
-:detect_arch
-# Fallback: detect using architecture
-iseq ${arch} x86_64 && goto load_bios || goto load_bios
-
-:load_bios
-echo [BIOS] Loading BIOS bootloader (undionly.kpxe)...
-chain undionly.kpxe
-echo [ERROR] Failed to load BIOS bootloader
-sleep 3
-exit
-
-:load_uefi
-echo [UEFI] Loading UEFI bootloader (ipxe.efi)...
-chain ipxe.efi
-echo [ERROR] Failed to load UEFI bootloader  
-sleep 3
-exit
-
-# If we get here, bootloader loaded successfully
-# Next boot.ipxe menu will appear after chainload
+# If chain fails, try with hardcoded IP
+# BOOT_SERVER_IP will be replaced by entrypoint.sh if available
+chain tftp://192.168.1.50/boot-menu.ipxe || (
+    echo Failed to load boot menu from both servers!
+    sleep 5
+    exit
+)
 EOF
 
-echo "[TFTP] Universal chainloader created (boot.ipxe)"
+echo "[TFTP] ✓ boot.ipxe chainloader created"
 
-# Also create menu version for when chainloader completes
+# Also create boot-menu.ipxe with interactive menu options
 echo "[TFTP] Generating interactive boot menu (boot-menu.ipxe)..."
 
 cat > /data/tftp/boot-menu.ipxe << 'EOF'
