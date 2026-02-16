@@ -1,52 +1,240 @@
 #!/bin/bash
 set -e
 
-echo "[Backend] Starting Netboot Orchestrator Services..."
+echo "============================================="
+echo " Netboot Orchestrator - Backend Services"
+echo "============================================="
 
-# Ensure boot scripts exist in TFTP directory
-echo "[TFTP] Creating boot scripts..."
+# ====================================================
+# Configuration
+# ====================================================
+BOOT_IP="${BOOT_SERVER_IP:-192.168.1.50}"
+echo "[Config] Boot server IP: $BOOT_IP"
+
+# ====================================================
+# 1. Download iPXE bootloaders
+# ====================================================
+echo "[TFTP] Preparing TFTP directory and bootloaders..."
 mkdir -p /data/tftp
 
-# Create undionly.ipxe - chains to boot menu via TFTP
-printf '#!ipxe\necho\necho ====================================================\necho        Netboot Orchestrator - iPXE Stage 2\necho ====================================================\necho\necho MAC Address: ${mac}\necho\necho Initializing network with DHCP...\ndhcp\necho IPv4 Address: ${net0/ip}\necho Gateway: ${net0/gateway}\necho\necho Attempting TFTP chainload to boot menu on 192.168.1.50\ntimeout 15 chain tftp://192.168.1.50/boot-menu.ipxe || goto retry\n\n:retry\necho\necho WARNING: TFTP boot menu failed - retrying with DHCP renewal...\ndhcp\ntimeout 15 chain tftp://192.168.1.50/boot-menu.ipxe || goto shell\n\n:shell\necho\necho ===============================================\necho ERROR: Could not load boot menu\necho ===============================================\necho\necho Cannot reach: tftp://192.168.1.50/boot-menu.ipxe\necho\necho Falling back to iPXE shell...\nshell\nreboot\n' > /data/tftp/undionly.ipxe
+# Download binaries if missing or corrupt (< 10KB = corrupt/empty)
+MIN_SIZE=10000
+for file in undionly.kpxe ipxe.efi; do
+    filepath="/data/tftp/$file"
+    current_size=$(stat -c%s "$filepath" 2>/dev/null || echo 0)
+    if [ "$current_size" -lt "$MIN_SIZE" ]; then
+        echo "[TFTP] Downloading $file..."
+        rm -f "$filepath"
+        curl -fSL -o "$filepath" "https://boot.ipxe.org/$file" || { echo "[ERROR] Failed to download $file"; exit 1; }
+        new_size=$(stat -c%s "$filepath")
+        echo "[TFTP] ✓ $file downloaded ($new_size bytes)"
+    else
+        echo "[TFTP] ✓ $file exists ($current_size bytes)"
+    fi
+done
 
-# Create boot.ipxe - chains to HTTP API (backup method)
-printf '#!ipxe\ndhcp\nchain http://192.168.1.50:8000/api/v1/boot/ipxe/menu\n' > /data/tftp/boot.ipxe
+# ====================================================
+# 2. Create iPXE boot scripts
+# ====================================================
+echo "[TFTP] Creating boot scripts..."
 
-# Create boot-menu.ipxe - initial placeholder  
-printf '#!ipxe\nclear\necho ========================================\necho Netboot Orchestrator\necho Main Boot Menu\necho ========================================\necho\necho Device MAC: ${mac}\necho Device IP: ${ip}\necho\necho [1] iPXE Shell\necho [2] Boot Menu (reload)\necho [0] Reboot\necho\n' > /data/tftp/boot-menu.ipxe
+# --- undionly.ipxe ---
+# This is the Stage 2 script: iPXE loads this, it chains to the HTTP API menu.
+# Uses heredoc with 'quoted' delimiter to preserve iPXE ${variables} literally.
+# __BOOT_IP__ is replaced by sed afterwards with the actual server IP.
+cat > /data/tftp/undionly.ipxe << 'IPXE_EOF'
+#!ipxe
+echo
+echo ====================================================
+echo        Netboot Orchestrator - iPXE Stage 2
+echo ====================================================
+echo
+echo MAC Address: ${mac}
+echo
+echo Initializing network with DHCP...
+dhcp
+echo IPv4 Address: ${net0/ip}
+echo Gateway: ${net0/gateway}
+echo
+echo Loading boot menu from __BOOT_IP__:8000 ...
+chain http://__BOOT_IP__:8000/api/v1/boot/ipxe/menu || goto retry
 
-echo "[TFTP] ✓ Boot scripts created:"
-ls -lh /data/tftp/*.ipxe
+:retry
+echo
+echo Boot menu failed - retrying with DHCP renewal...
+dhcp
+chain http://__BOOT_IP__:8000/api/v1/boot/ipxe/menu || goto shell
 
-# Start dnsmasq in background
-echo "[dnsmasq] Starting TFTP/DHCP server..."
+:shell
+echo
+echo ===============================================
+echo ERROR: Could not load boot menu
+echo ===============================================
+echo
+echo Server: http://__BOOT_IP__:8000/api/v1/boot/ipxe/menu
+echo
+echo Dropping to iPXE shell...
+shell
+reboot
+IPXE_EOF
+sed -i "s/__BOOT_IP__/${BOOT_IP}/g" /data/tftp/undionly.ipxe
+
+# --- boot.ipxe ---
+# Backup entry point (alternative chainload)
+cat > /data/tftp/boot.ipxe << BOOT_EOF
+#!ipxe
+dhcp
+chain http://${BOOT_IP}:8000/api/v1/boot/ipxe/menu
+BOOT_EOF
+
+# --- boot-menu.ipxe ---
+# Placeholder menu until FastAPI generates the real one.
+# Uses proper iPXE menu/item/choose syntax.
+cat > /data/tftp/boot-menu.ipxe << 'MENU_EOF'
+#!ipxe
+menu Netboot Orchestrator - Boot Menu
+item --gap --
+item --gap --  Waiting for API to generate menu...
+item --gap --
+item shell     Drop to iPXE Shell
+item reboot    Reboot
+choose --timeout 30 --default shell selected || goto shell
+goto ${selected}
+
+:shell
+echo Entering iPXE shell...
+shell
+
+:reboot
+reboot
+MENU_EOF
+
+echo "[TFTP] ✓ Boot scripts created"
+
+# Show all TFTP files
+echo "[TFTP] TFTP root contents:"
+ls -lh /data/tftp/ 2>&1 | sed 's/^/  /'
+
+# ====================================================
+# 3. Generate dnsmasq configuration (Proxy DHCP)
+# ====================================================
+# Proxy DHCP: dnsmasq does NOT assign IP addresses.
+# The existing DHCP server (e.g. Unifi router) handles IP assignment.
+# dnsmasq only provides PXE boot options and serves TFTP.
+# This eliminates DHCP conflicts and enables proper iPXE detection.
+echo "[dnsmasq] Generating proxy DHCP configuration..."
+mkdir -p /etc/dnsmasq.d
+
+cat > /etc/dnsmasq.d/netboot.conf << DNSMASQ_EOF
+# ========================================
+# Netboot Orchestrator - dnsmasq config
+# Generated at runtime by entrypoint
+# ========================================
+
+# Disable DNS server (not needed, only TFTP + proxy DHCP)
+port=0
+
+# TFTP server
+enable-tftp
+tftp-root=/data/tftp
+tftp-no-blocksize
+tftp-single-port
+tftp-max=50
+
+# Logging
+log-facility=/dev/stdout
+log-dhcp
+
+# Listen on all interfaces
+interface=*
+bind-dynamic
+
+# ========================================
+# Proxy DHCP (PXE boot options only)
+# No IP assignment - existing DHCP server handles that
+# ========================================
+dhcp-range=10.10.50.0,proxy
+dhcp-range=192.168.1.0,proxy
+
+# Make PXE clients boot immediately (no menu delay)
+pxe-prompt="Netboot Orchestrator",0
+
+# ========================================
+# Client Detection
+# ========================================
+
+# iPXE detection via option 175 (iPXE encapsulated options)
+# All iPXE builds send this; more reliable than vendor class
+dhcp-match=set:ipxe,175
+
+# Architecture detection (DHCP option 93)
+dhcp-match=set:bios,93,0
+dhcp-match=set:efi32,93,6
+dhcp-match=set:efibc,93,7
+dhcp-match=set:efi64,93,9
+
+# ========================================
+# Boot File Assignment
+# ========================================
+
+# iPXE clients: serve the boot script (chains to HTTP API)
+dhcp-boot=tag:ipxe,undionly.ipxe,,${BOOT_IP}
+
+# Legacy BIOS PXE: serve iPXE binary (becomes iPXE, then gets script)
+dhcp-boot=tag:!ipxe,tag:bios,undionly.kpxe,,${BOOT_IP}
+
+# UEFI: serve iPXE EFI binary
+dhcp-boot=tag:!ipxe,tag:efi64,ipxe.efi,,${BOOT_IP}
+dhcp-boot=tag:!ipxe,tag:efibc,ipxe.efi,,${BOOT_IP}
+dhcp-boot=tag:!ipxe,tag:efi32,ipxe.efi,,${BOOT_IP}
+
+# PXE boot service discovery (for legacy PXE ROM)
+pxe-service=tag:!ipxe,x86PC,"Netboot Orchestrator",undionly
+pxe-service=tag:!ipxe,x86-64_EFI,"Netboot Orchestrator",ipxe
+pxe-service=tag:!ipxe,BC_EFI,"Netboot Orchestrator",ipxe
+DNSMASQ_EOF
+
+echo "[dnsmasq] ✓ Configuration generated (proxy DHCP mode)"
+echo "[dnsmasq] Boot rules:"
+grep -E "dhcp-boot|pxe-service|dhcp-range" /etc/dnsmasq.d/netboot.conf | sed 's/^/  /'
+
+# ====================================================
+# 4. Start services
+# ====================================================
+
+# Start dnsmasq (TFTP + Proxy DHCP)
+echo "[dnsmasq] Starting TFTP + Proxy DHCP server..."
 /usr/sbin/dnsmasq -C /etc/dnsmasq.d/netboot.conf -d &
 DNSMASQ_PID=$!
+echo "[dnsmasq] Started with PID $DNSMASQ_PID"
 
-# Start tgtd (iSCSI) in background
+# Start tgtd (iSCSI)
 echo "[tgtd] Starting iSCSI target..."
 /usr/sbin/tgtd -f &
 TGTD_PID=$!
 
-# Start FastAPI (background)
+# Start FastAPI
 echo "[FastAPI] Starting API server on 0.0.0.0:8000..."
 cd /app/backend
 python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 &
 FASTAPI_PID=$!
 
-# Wait for FastAPI to be ready
+# Wait for FastAPI to initialize
 echo "[Boot Menu] Waiting for FastAPI to initialize..."
-sleep 3
+sleep 5
 
-# Generate boot menu from API and save to TFTP
+# ====================================================
+# 5. Boot menu generation (from API)
+# ====================================================
 generate_boot_menu() {
-    echo "[Boot Menu] Generating menu from API endpoint..."
-    curl -s http://127.0.0.1:8000/api/v1/boot/ipxe/menu -o /data/tftp/boot-menu.ipxe
-    if [ $? -eq 0 ]; then
-        echo "[Boot Menu] ✓ Menu generated: /data/tftp/boot-menu.ipxe"
+    local tmpfile="/tmp/boot-menu-tmp.ipxe"
+    curl -sf http://127.0.0.1:8000/api/v1/boot/ipxe/menu -o "$tmpfile" 2>/dev/null
+    if [ $? -eq 0 ] && [ -s "$tmpfile" ] && head -1 "$tmpfile" | grep -q '#!ipxe'; then
+        mv "$tmpfile" /data/tftp/boot-menu.ipxe
+        echo "[Boot Menu] ✓ Menu updated from API"
     else
-        echo "[Boot Menu] ✗ Failed to generate menu"
+        rm -f "$tmpfile"
+        echo "[Boot Menu] ✗ API not ready or returned invalid menu"
     fi
 }
 
@@ -60,5 +248,13 @@ while true; do
 done &
 BOOT_MENU_PID=$!
 
-# Wait for FastAPI (foreground)
+echo "============================================="
+echo " All services started successfully"
+echo "   TFTP:    0.0.0.0:69  (proxy DHCP + TFTP)"
+echo "   API:     0.0.0.0:8000"
+echo "   iSCSI:   0.0.0.0:3260"
+echo "   Boot IP: $BOOT_IP"
+echo "============================================="
+
+# Wait for FastAPI (foreground process)
 wait $FASTAPI_PID

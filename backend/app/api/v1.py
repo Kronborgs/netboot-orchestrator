@@ -469,6 +469,8 @@ async def boot_ipxe_menu(file_service: FileService = Depends(get_file_service)):
     """
     Generate iPXE boot menu script with available OS installers.
     This endpoint is called by iPXE clients to get the boot menu.
+    
+    Uses iPXE menu/item/choose system for proper interactive menus.
     """
     # Get list of available OS installers
     try:
@@ -477,52 +479,46 @@ async def boot_ipxe_menu(file_service: FileService = Depends(get_file_service)):
     except Exception as e:
         installers = []
     
-    # Build iPXE menu script
+    boot_server_ip = os.getenv("BOOT_SERVER_IP", "192.168.1.50")
+    
+    # Build iPXE menu script using proper menu/item/choose system
     menu_script = """#!ipxe
-# Netboot Orchestrator OS Installation Menu
-
-set color_header 0x0000ff
-set color_item 0x00ffff
-set color_selected 0xffffff
+# Netboot Orchestrator - Boot Menu
+# Generated dynamically by FastAPI
 
 :menu
-clear
-echo
-echo ====================================
-echo  Netboot Orchestrator
-echo  OS Installation Menu
-echo ====================================
-echo
-echo  Device MAC: ${net0/mac}
-echo  Device IP:  ${net0/ip}
-echo  Server IP:  ${next-server}
-echo
+menu Netboot Orchestrator - OS Installation Menu
+item --gap --                        Device Information
+item --gap --  MAC: ${net0/mac}
+item --gap --  IP:  ${net0/ip}
+item --gap --
 """
     
     if installers:
-        menu_script += """echo  Available OS Installers:
-echo
-"""
+        menu_script += "item --gap --                        Available OS Installers\n"
+        menu_script += "item --gap --\n"
+        
         for idx, installer in enumerate(installers, start=1):
-            # Safely format installer name (max 50 chars)
+            label = f"installer_{idx}"
             name = installer['filename'][:50]
             size = installer.get('size_bytes', 0)
             size_display = f"{size / (1024**3):.2f}GB" if size > 0 else "Unknown"
-            menu_script += f"echo  {idx}) {name} ({size_display})\n"
+            menu_script += f"item {label}    {idx}) {name} ({size_display})\n"
         
-        menu_script += """echo
-echo  Select an installer or press Ctrl+B for iPXE shell
-echo
-choose --timeout 60 --default 1 menu_choice || goto shell
-
-"""
-        # Add menu items for each installer
+        menu_script += "item --gap --\n"
+        menu_script += "item shell     Drop to iPXE Shell\n"
+        menu_script += "item reboot    Reboot\n"
+        menu_script += "choose --timeout 120 --default installer_1 selected || goto shell\n"
+        menu_script += "goto ${selected}\n\n"
+        
+        # Add goto targets for each installer
         for idx, installer in enumerate(installers, start=1):
+            label = f"installer_{idx}"
             name = installer['filename'][:50]
             path = installer['path']
-            url = f"http://${{next-server}}:8000/api/v1/os-installers/download/{path}"
+            url = f"http://{boot_server_ip}:8000/api/v1/os-installers/download/{path}"
             
-            menu_script += f""":{idx}
+            menu_script += f""":{label}
 echo
 echo Loading: {name}
 echo
@@ -530,21 +526,27 @@ chain {url} || goto menu
 
 """
     else:
-        menu_script += """echo  No OS installers available
-echo
-echo  1) Shell
-echo
-choose --timeout 30 --default 1 menu_choice || goto shell
+        menu_script += """item --gap --                        No OS Installers Found
+item --gap --
+item --gap --  Add ISOs to /isos to populate this menu
+item --gap --
+item shell     Drop to iPXE Shell
+item reboot    Reboot
+choose --timeout 60 --default shell selected || goto shell
+goto ${selected}
 
-:1
-echo Starting iPXE shell...
-sleep 1
 """
     
     menu_script += """:shell
 echo
-echo iPXE Shell
+echo Entering iPXE Shell...
+echo Type 'exit' to return to menu
 echo
+shell
+goto menu
+
+:reboot
+reboot
 """
     
     return PlainTextResponse(menu_script)

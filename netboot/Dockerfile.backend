@@ -3,13 +3,9 @@
 FROM ubuntu:22.04
 
 RUN apt-get update && apt-get install -y \
-    # Python/FastAPI
     python3 python3-pip \
-    # TFTP/DHCP
     dnsmasq curl \
-    # iSCSI Target
     tgt \
-    # Utilities
     net-tools iproute2 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -17,7 +13,7 @@ RUN apt-get update && apt-get install -y \
 RUN pip3 install fastapi uvicorn python-multipart
 
 # Create directories
-RUN mkdir -p /data /tftp /app/backend
+RUN mkdir -p /data/tftp /app/backend /etc/dnsmasq.d
 
 # Copy FastAPI backend code
 COPY backend /app/backend/
@@ -27,23 +23,16 @@ WORKDIR /app/backend
 COPY netboot/entrypoint-backend.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Download iPXE bootloaders
+# Pre-download iPXE bootloaders into image layer (cache optimization)
+# The entrypoint will re-download if volume mount shadows these
 WORKDIR /data/tftp
-RUN echo "Downloading iPXE bootloaders..." && \
-    curl -L -o undionly.kpxe https://boot.ipxe.org/undionly.kpxe && \
-    curl -L -o ipxe.efi https://boot.ipxe.org/ipxe.efi && \
-    ls -lh undionly.kpxe ipxe.efi && \
-    echo "✓ iPXE binaries ready"
+RUN curl -fSL -o undionly.kpxe https://boot.ipxe.org/undionly.kpxe && \
+    curl -fSL -o ipxe.efi https://boot.ipxe.org/ipxe.efi && \
+    ls -lh undionly.kpxe ipxe.efi
 
-# Create boot scripts - use echo with escaped newlines
-RUN mkdir -p /data/tftp && \
-    printf '#!ipxe\necho\necho ====================================================\necho        Netboot Orchestrator - iPXE Stage 2\necho ====================================================\necho\necho MAC Address: $${mac}\necho\necho Initializing network with DHCP...\ndhcp\necho IPv4 Address: $${net0/ip}\necho Gateway: $${net0/gateway}\necho\necho Attempting TFTP chainload to boot menu on 192.168.1.50\ntimeout 15 chain tftp://192.168.1.50/boot-menu.ipxe || goto retry\n\n:retry\necho\necho WARNING: TFTP boot menu failed - retrying with DHCP renewal...\ndhcp\ntimeout 15 chain tftp://192.168.1.50/boot-menu.ipxe || goto shell\n\n:shell\necho\necho ===============================================\necho ERROR: Could not load boot menu\necho ===============================================\necho\necho Cannot reach: tftp://192.168.1.50/boot-menu.ipxe\necho\necho Falling back to iPXE shell...\nshell\nreboot\n' > /data/tftp/undionly.ipxe && \
-    printf '#!ipxe\ndhcp\nchain http://192.168.1.50:8000/api/v1/boot/ipxe/menu\n' > /data/tftp/boot.ipxe && \
-    printf '#!ipxe\nclear\necho ========================================\necho Netboot Orchestrator\necho Main Boot Menu\necho ========================================\necho\necho Device MAC: ${mac}\necho Device IP: ${ip}\necho\necho [1] iPXE Shell\necho [2] Boot Menu (reload)\necho [0] Reboot\necho\n' > /data/tftp/boot-menu.ipxe
-
-# Create dnsmasq config
-RUN mkdir -p /etc/dnsmasq.d && \
-    printf 'interface=*\nlisten-address=0.0.0.0\nport=69\nenable-tftp\ntftp-root=/data/tftp\ntftp-no-blocksize\ntftp-single-port\ntftp-max=50\nuser=nobody\ngroup=nogroup\nlog-facility=/dev/stdout\nlog-queries\nlog-dhcp\n\n# DHCP Server Configuration\ndhcp-range=192.168.1.100,192.168.1.200,255.255.255.0,24h\ndhcp-option=tag:192_168_1,3,192.168.1.1\ndhcp-option=tag:192_168_1,6,8.8.8.8,8.8.4.4\n\ndhcp-range=10.10.50.100,10.10.50.200,255.255.255.0,24h\ndhcp-option=tag:10_10_50,3,10.10.50.1\ndhcp-option=tag:10_10_50,6,8.8.8.8,8.8.4.4\n\n# PXE/UEFI Boot Detection (using numeric DHCP option codes)\ndhcp-match=set:bios,93,0\ndhcp-match=set:efi32,93,6\ndhcp-match=set:efibc,93,7\ndhcp-match=set:efi64,93,9\ndhcp-match=set:arm64,93,11\ndhcp-match=set:ipxe,60,*iPXE*\ndhcp-match=set:ipxe,60,*Etherboot*\n\n# Boot File Delivery - MUST specify TFTP server IP\n# CRITICAL: iPXE rule MUST come FIRST - dnsmasq uses first matching rule\n# When both BIOS and iPXE tags match, iPXE rule wins (prevents re-downloading undionly.kpxe)\ndhcp-boot=tag:ipxe,undionly.ipxe,192.168.1.50,192.168.1.50\ndhcp-boot=tag:bios,undionly.kpxe,192.168.1.50,192.168.1.50\ndhcp-boot=tag:efi64,ipxe.efi,192.168.1.50,192.168.1.50\ndhcp-boot=tag:efi32,ipxe.efi,192.168.1.50,192.168.1.50\ndhcp-boot=tag:efibc,ipxe.efi,192.168.1.50,192.168.1.50\n' > /etc/dnsmasq.d/netboot.conf
+# NOTE: Boot scripts and dnsmasq config are generated at runtime
+# by the entrypoint script (supports BOOT_SERVER_IP env var and
+# survives volume mount shadowing)
 
 EXPOSE 69/udp 67/udp 8000 3260
 
