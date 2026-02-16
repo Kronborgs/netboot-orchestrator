@@ -480,66 +480,117 @@ async def boot_ipxe_menu(file_service: FileService = Depends(get_file_service)):
         installers = []
     
     boot_server_ip = os.getenv("BOOT_SERVER_IP", "192.168.1.50")
+    version = get_version()
     
-    # Build iPXE menu script using proper menu/item/choose system
-    menu_script = """#!ipxe
-# Netboot Orchestrator - Boot Menu
-# Generated dynamically by FastAPI
+    # Categorize installers by OS type
+    def categorize(filename: str) -> str:
+        fl = filename.lower()
+        if any(w in fl for w in ['windows', 'win10', 'win11', 'winpe', 'server2']):
+            return 'Windows'
+        elif any(w in fl for w in ['ubuntu', 'debian', 'fedora', 'centos', 'rhel', 'rocky', 'alma', 'arch', 'mint', 'opensuse', 'suse', 'linux']):
+            return 'Linux'
+        elif any(w in fl for w in ['proxmox', 'esxi', 'vmware', 'truenas', 'freenas', 'opnsense', 'pfsense', 'unraid']):
+            return 'Infrastructure'
+        else:
+            return 'Other'
+    
+    def format_size(size_bytes: int) -> str:
+        if size_bytes <= 0:
+            return "N/A"
+        gb = size_bytes / (1024**3)
+        if gb >= 1:
+            return f"{gb:.1f} GB"
+        mb = size_bytes / (1024**2)
+        return f"{mb:.0f} MB"
+    
+    # Build iPXE menu script
+    menu_script = f"""#!ipxe
+# Netboot Orchestrator v{version}
+# Boot menu generated dynamically by API
 
 :menu
-menu Netboot Orchestrator - OS Installation Menu
-item --gap --                        Device Information
-item --gap --  MAC: ${net0/mac}
-item --gap --  IP:  ${net0/ip}
+menu ========== Netboot Orchestrator v{version} ==========
+item --gap --
+item --gap --  MAC: ${{net0/mac}}  |  IP: ${{net0/ip}}
+item --gap --  Gateway: ${{net0/gateway}}
 item --gap --
 """
     
     if installers:
-        menu_script += "item --gap --                        Available OS Installers\n"
-        menu_script += "item --gap --\n"
+        # Group by category
+        categories: dict = {}
+        for inst in installers:
+            cat = categorize(inst['filename'])
+            categories.setdefault(cat, []).append(inst)
         
-        for idx, installer in enumerate(installers, start=1):
-            label = f"installer_{idx}"
-            name = installer['filename'][:50]
-            size = installer.get('size_bytes', 0)
-            size_display = f"{size / (1024**3):.2f}GB" if size > 0 else "Unknown"
-            menu_script += f"item {label}    {idx}) {name} ({size_display})\n"
+        # Preferred category order
+        cat_order = ['Windows', 'Linux', 'Infrastructure', 'Other']
+        idx = 0
         
-        menu_script += "item --gap --\n"
-        menu_script += "item shell     Drop to iPXE Shell\n"
+        for cat in cat_order:
+            if cat not in categories:
+                continue
+            menu_script += f"item --gap --  --- {cat} ---\n"
+            for inst in categories[cat]:
+                idx += 1
+                label = f"os_{idx}"
+                name = inst['filename'][:45]
+                size = format_size(inst.get('size_bytes', 0))
+                menu_script += f"item {label}    {name}  [{size}]\n"
+            menu_script += "item --gap --\n"
+        
+        menu_script += "item --gap --  --- Tools ---\n"
+        menu_script += "item shell     iPXE Shell\n"
         menu_script += "item reboot    Reboot\n"
+        menu_script += "item --gap --\n"
         menu_script += "choose selected || goto shell\n"
         menu_script += "goto ${selected}\n\n"
         
         # Add goto targets for each installer
-        for idx, installer in enumerate(installers, start=1):
-            label = f"installer_{idx}"
-            name = installer['filename'][:50]
-            path = installer['path']
-            url = f"http://{boot_server_ip}:8000/api/v1/os-installers/download/{path}"
-            
-            menu_script += f""":{label}
+        idx = 0
+        for cat in cat_order:
+            if cat not in categories:
+                continue
+            for inst in categories[cat]:
+                idx += 1
+                label = f"os_{idx}"
+                name = inst['filename'][:50]
+                path = inst['path']
+                url = f"http://{boot_server_ip}:8000/api/v1/os-installers/download/{path}"
+                
+                menu_script += f""":{label}
 echo
-echo Loading: {name}
+echo ================================================
+echo  Loading: {name}
+echo  Source:  {url}
+echo ================================================
 echo
-chain {url} || goto menu
+chain {url} || goto failed
+goto menu
 
 """
     else:
-        menu_script += """item --gap --                        No OS Installers Found
+        menu_script += """item --gap --  No OS installers found
 item --gap --
-item --gap --  Add ISOs to /isos to populate this menu
+item --gap --  Upload ISOs via the Web UI or place
+item --gap --  them in the /isos directory
 item --gap --
-item shell     Drop to iPXE Shell
+item shell     iPXE Shell
 item reboot    Reboot
+item --gap --
 choose selected || goto shell
 goto ${selected}
 
 """
     
-    menu_script += """:shell
+    menu_script += """:failed
 echo
-echo Entering iPXE Shell...
+echo !! Download failed - returning to menu in 5s...
+sleep 5
+goto menu
+
+:shell
+echo
 echo Type 'exit' to return to menu
 echo
 shell

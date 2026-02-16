@@ -82,7 +82,7 @@ export const ImageManagement: React.FC = () => {
   const handleAssignImage = async () => {
     if (!assignImage) return;
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/v1/images/${assignImage.imageId}/assign?mac=${assignImage.mac}`,
         { method: 'PUT' }
       );
@@ -98,7 +98,7 @@ export const ImageManagement: React.FC = () => {
 
   const handleUnassignImage = async (imageId: string) => {
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/v1/images/${imageId}/unassign`,
         { method: 'PUT' }
       );
@@ -114,7 +114,7 @@ export const ImageManagement: React.FC = () => {
   const handleDeleteImage = async (imageId: string) => {
     if (!confirm('Are you sure you want to delete this image?')) return;
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/images/${imageId}`, {
+      const res = await apiFetch(`/api/v1/images/${imageId}`, {
         method: 'DELETE'
       });
       if (res.ok) {

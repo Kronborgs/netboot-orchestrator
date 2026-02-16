@@ -91,7 +91,7 @@ export const UnknownDeviceWizard: React.FC = () => {
     if (!selectedDevice) return;
 
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/v1/unknown-devices/register?mac=${selectedDevice.mac}&device_type=${assignment.deviceType}`,
         { method: 'POST' }
       );
