@@ -18,27 +18,50 @@ echo "[TFTP] Preparing TFTP directory and bootloaders..."
 mkdir -p /data/tftp
 
 # Download binaries if missing or corrupt (< 10KB = corrupt/empty)
-# Note: ipxe.efi was removed from boot.ipxe.org; snponly.efi is the replacement
 MIN_SIZE=10000
 
 download_ipxe() {
     local localname="$1"
-    local url="$2"
+    shift
     local filepath="/data/tftp/$localname"
     local current_size=$(stat -c%s "$filepath" 2>/dev/null || echo 0)
     if [ "$current_size" -lt "$MIN_SIZE" ]; then
-        echo "[TFTP] Downloading $localname from $url ..."
         rm -f "$filepath"
-        curl -fSL -o "$filepath" "$url" || { echo "[ERROR] Failed to download $localname"; exit 1; }
-        local new_size=$(stat -c%s "$filepath")
-        echo "[TFTP] ✓ $localname downloaded ($new_size bytes)"
+        # Try each URL until one works
+        for url in "$@"; do
+            echo "[TFTP] Trying $localname from $url ..."
+            if curl -fSL --connect-timeout 10 -o "$filepath" "$url" 2>/dev/null; then
+                local new_size=$(stat -c%s "$filepath")
+                if [ "$new_size" -gt "$MIN_SIZE" ]; then
+                    echo "[TFTP] ✓ $localname downloaded ($new_size bytes)"
+                    return 0
+                fi
+            fi
+            rm -f "$filepath"
+        done
+        echo "[WARN] Could not download $localname - UEFI boot may not work"
     else
         echo "[TFTP] ✓ $localname exists ($current_size bytes)"
     fi
 }
 
-download_ipxe "undionly.kpxe" "https://boot.ipxe.org/undionly.kpxe"
-download_ipxe "ipxe.efi"      "https://boot.ipxe.org/snponly.efi"
+# undionly.kpxe - BIOS iPXE binary (critical)
+download_ipxe "undionly.kpxe" \
+    "https://boot.ipxe.org/undionly.kpxe" \
+    "https://github.com/ipxe/ipxe/releases/latest/download/undionly.kpxe"
+
+# Verify BIOS bootloader exists (required)
+if [ ! -f /data/tftp/undionly.kpxe ] || [ $(stat -c%s /data/tftp/undionly.kpxe 2>/dev/null || echo 0) -lt "$MIN_SIZE" ]; then
+    echo "[ERROR] undionly.kpxe is missing - BIOS PXE boot will not work!"
+    exit 1
+fi
+
+# ipxe.efi - UEFI iPXE binary (optional, for UEFI devices)
+download_ipxe "ipxe.efi" \
+    "https://boot.ipxe.org/ipxe.efi" \
+    "https://boot.ipxe.org/snponly.efi" \
+    "https://github.com/ipxe/ipxe/releases/latest/download/ipxe.efi" \
+    "https://github.com/ipxe/ipxe/releases/latest/download/snponly.efi"
 
 # ====================================================
 # 2. Create iPXE boot scripts

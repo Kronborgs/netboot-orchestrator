@@ -23,13 +23,10 @@ WORKDIR /app/backend
 COPY netboot/entrypoint-backend.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Pre-download iPXE bootloaders into image layer (cache optimization)
-# The entrypoint will re-download if volume mount shadows these
-# Uses snponly.efi (ipxe.efi was removed from boot.ipxe.org)
+# iPXE bootloaders are downloaded at runtime by the entrypoint script.
+# This avoids build failures if boot.ipxe.org changes URLs,
+# and the volume mount (./data:/data) shadows these files anyway.
 WORKDIR /data/tftp
-RUN curl -fSL -o undionly.kpxe https://boot.ipxe.org/undionly.kpxe && \
-    curl -fSL -o ipxe.efi https://boot.ipxe.org/snponly.efi && \
-    ls -lh undionly.kpxe ipxe.efi
 
 # NOTE: Boot scripts and dnsmasq config are generated at runtime
 # by the entrypoint script (supports BOOT_SERVER_IP env var and
