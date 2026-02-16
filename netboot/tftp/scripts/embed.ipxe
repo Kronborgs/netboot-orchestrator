@@ -1,66 +1,45 @@
 #!ipxe
 # Netboot Orchestrator - Embedded Boot Script
-# This script is embedded directly in undionly.kpxe at build time
-# Purpose: Avoid second DHCP request which fails on multi-VLAN setups
+# Compiled into undionly.kpxe at Docker build time.
+# Uses ${next-server} from DHCP (set by Unifi option 66 or dnsmasq proxy).
 
-echo ========================================
-echo Netboot Orchestrator
-echo Custom iPXE Bootloader
-echo ========================================
+echo
+echo ====================================================
+echo        Netboot Orchestrator - Booting...
+echo ====================================================
 echo
 
-# Reinitialize network with DHCP
-echo Configuring network...
-dhcp || (
-    echo DHCP failed, using manual configuration...
-    set net0/ip 10.10.50.159
-    set net0/netmask 255.255.255.0
-    set net0/gateway 10.10.50.1
-    set net0/dns 10.10.50.1
-)
+dhcp || goto retry_dhcp
 
-echo Network configured
-echo IP: ${ip:ipv4}
-echo Next Server: ${next-server}
+echo IP:      ${net0/ip}
+echo Gateway: ${net0/gateway}
+echo Server:  ${next-server}
 echo
 
-# Boot menu chainload with retry logic
-echo Loading Netboot Orchestrator menu...
+echo Loading boot menu from http://${next-server}:8000 ...
+chain http://${next-server}:8000/api/v1/boot/ipxe/menu || goto retry
+
+:retry_dhcp
+echo DHCP failed, retrying in 3 seconds...
+sleep 3
+dhcp || goto shell
+
+:retry
 echo
-
-:retry_menu
-# Try to load from DHCP-provided server first
-set attempts 0
-:attempt_dhcp
-isset ${next-server} && goto chain_from_dhcp || goto chain_hardcoded
-
-:chain_from_dhcp
-echo [Attempt 1] Loading from DHCP-provided server: ${next-server}
-chain tftp://${next-server}/boot-menu.ipxe && goto success || goto chain_hardcoded
-
-:chain_hardcoded
-echo [Attempt 2] Loading from hardcoded server: 192.168.1.50
-chain tftp://192.168.1.50/boot-menu.ipxe && goto success || goto chain_hardcoded_port
-
-:chain_hardcoded_port
-echo [Attempt 3] Loading from hardcoded server with explicit port
-chain tftp://192.168.1.50:69/boot-menu.ipxe && goto success || goto retry_failed
-
-:retry_failed
-echo
-echo Failed to load boot menu after 3 attempts!
-echo Retrying in 5 seconds...
+echo Boot menu unavailable, retrying in 5 seconds...
 sleep 5
-set attempts:int ${attempts:int}+1
-iseq ${attempts:int} 3 && goto shell || goto retry_menu
-
-:success
-# Menu loaded successfully, script continues from boot-menu.ipxe
+dhcp
+chain http://${next-server}:8000/api/v1/boot/ipxe/menu || goto shell
 
 :shell
-# If all else fails, drop to iPXE shell for manual configuration
 echo
-echo Dropping to iPXE command shell...
-echo Type 'help' for commands, 'reboot' to restart
+echo ===============================================
+echo  ERROR: Could not load boot menu
+echo  Boot server: ${next-server}
+echo ===============================================
+echo
+echo Try manually:
+echo   dhcp
+echo   chain http://SERVER_IP:8000/api/v1/boot/ipxe/menu
 echo
 shell

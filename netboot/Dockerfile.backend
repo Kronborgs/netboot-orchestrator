@@ -1,5 +1,29 @@
-# Consolidated Backend: API + TFTP + HTTP + iSCSI
-# Runs all services on host network for direct network access
+# ====================================================
+# Stage 1: Build custom iPXE with embedded boot script
+# ====================================================
+# This compiles undionly.kpxe with an embedded script that
+# automatically chains to the HTTP boot menu API.
+# Eliminates the "double iPXE" detection problem entirely.
+FROM ubuntu:22.04 AS ipxe-builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc gcc-multilib make binutils perl liblzma-dev mtools \
+    git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+RUN git clone https://github.com/ipxe/ipxe.git --depth 1
+
+# Copy the embedded boot script
+COPY netboot/tftp/scripts/embed.ipxe /build/embed.ipxe
+
+# Build BIOS iPXE binary with embedded script
+RUN cd ipxe/src && make bin/undionly.kpxe EMBED=/build/embed.ipxe \
+    && echo "Built undionly.kpxe: $(ls -lh bin/undionly.kpxe | awk '{print $5}')"
+
+# ====================================================
+# Stage 2: Main application image
+# ====================================================
 FROM ubuntu:22.04
 
 RUN apt-get update && apt-get install -y \
@@ -13,7 +37,10 @@ RUN apt-get update && apt-get install -y \
 RUN pip3 install fastapi uvicorn python-multipart
 
 # Create directories
-RUN mkdir -p /data/tftp /app/backend /etc/dnsmasq.d
+RUN mkdir -p /data/tftp /app/backend /etc/dnsmasq.d /opt/ipxe
+
+# Copy custom iPXE binary (with embedded boot script)
+COPY --from=ipxe-builder /build/ipxe/src/bin/undionly.kpxe /opt/ipxe/undionly.kpxe
 
 # Copy FastAPI backend code
 COPY backend /app/backend/
@@ -23,14 +50,7 @@ WORKDIR /app/backend
 COPY netboot/entrypoint-backend.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# iPXE bootloaders are downloaded at runtime by the entrypoint script.
-# This avoids build failures if boot.ipxe.org changes URLs,
-# and the volume mount (./data:/data) shadows these files anyway.
 WORKDIR /data/tftp
-
-# NOTE: Boot scripts and dnsmasq config are generated at runtime
-# by the entrypoint script (supports BOOT_SERVER_IP env var and
-# survives volume mount shadowing)
 
 EXPOSE 69/udp 67/udp 8000 3260
 

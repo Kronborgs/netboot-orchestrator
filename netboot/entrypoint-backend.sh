@@ -12,56 +12,32 @@ BOOT_IP="${BOOT_SERVER_IP:-192.168.1.50}"
 echo "[Config] Boot server IP: $BOOT_IP"
 
 # ====================================================
-# 1. Download iPXE bootloaders
+# 1. Install custom iPXE bootloader
 # ====================================================
+# The custom undionly.kpxe has an embedded boot script that
+# automatically chains to the HTTP boot menu API.
+# This eliminates the classic "double iPXE" detection problem.
 echo "[TFTP] Preparing TFTP directory and bootloaders..."
 mkdir -p /data/tftp
 
-# Download binaries if missing or corrupt (< 10KB = corrupt/empty)
-MIN_SIZE=10000
-
-download_ipxe() {
-    local localname="$1"
-    shift
-    local filepath="/data/tftp/$localname"
-    local current_size=$(stat -c%s "$filepath" 2>/dev/null || echo 0)
-    if [ "$current_size" -lt "$MIN_SIZE" ]; then
-        rm -f "$filepath"
-        # Try each URL until one works
-        for url in "$@"; do
-            echo "[TFTP] Trying $localname from $url ..."
-            if curl -fSL --connect-timeout 10 -o "$filepath" "$url" 2>/dev/null; then
-                local new_size=$(stat -c%s "$filepath")
-                if [ "$new_size" -gt "$MIN_SIZE" ]; then
-                    echo "[TFTP] ✓ $localname downloaded ($new_size bytes)"
-                    return 0
-                fi
-            fi
-            rm -f "$filepath"
-        done
-        echo "[WARN] Could not download $localname - UEFI boot may not work"
-    else
-        echo "[TFTP] ✓ $localname exists ($current_size bytes)"
-    fi
-}
-
-# undionly.kpxe - BIOS iPXE binary (critical)
-download_ipxe "undionly.kpxe" \
-    "https://boot.ipxe.org/undionly.kpxe" \
-    "https://github.com/ipxe/ipxe/releases/latest/download/undionly.kpxe"
-
-# Verify BIOS bootloader exists (required)
-if [ ! -f /data/tftp/undionly.kpxe ] || [ $(stat -c%s /data/tftp/undionly.kpxe 2>/dev/null || echo 0) -lt "$MIN_SIZE" ]; then
-    echo "[ERROR] undionly.kpxe is missing - BIOS PXE boot will not work!"
-    exit 1
+if [ -f /opt/ipxe/undionly.kpxe ]; then
+    cp /opt/ipxe/undionly.kpxe /data/tftp/undionly.kpxe
+    KPXE_SIZE=$(stat -c%s /data/tftp/undionly.kpxe)
+    echo "[TFTP] ✓ Custom undionly.kpxe installed ($KPXE_SIZE bytes, has embedded boot script)"
+else
+    echo "[WARN] Custom iPXE binary not found at /opt/ipxe/undionly.kpxe"
+    echo "[WARN] Falling back to stock download (no embedded script)..."
+    curl -fSL --connect-timeout 15 -o /data/tftp/undionly.kpxe \
+        "https://boot.ipxe.org/undionly.kpxe" 2>/dev/null || \
+    curl -fSL --connect-timeout 15 -o /data/tftp/undionly.kpxe \
+        "https://github.com/ipxe/ipxe/releases/latest/download/undionly.kpxe" 2>/dev/null
 fi
 
-# ipxe.efi - UEFI iPXE binary (optional, for UEFI devices)
-download_ipxe "ipxe.efi" \
-    "https://boot.ipxe.org/ipxe.efi" \
-    "https://boot.ipxe.org/snponly.efi" \
-    "https://github.com/ipxe/ipxe/releases/latest/download/ipxe.efi" \
-    "https://github.com/ipxe/ipxe/releases/latest/download/snponly.efi"
+# Verify BIOS bootloader exists (required)
+if [ ! -f /data/tftp/undionly.kpxe ] || [ $(stat -c%s /data/tftp/undionly.kpxe 2>/dev/null || echo 0) -lt 10000 ]; then
+    echo "[ERROR] undionly.kpxe is missing or corrupt - PXE boot will not work!"
+    exit 1
+fi
 
 # ====================================================
 # 2. Create iPXE boot scripts
@@ -193,8 +169,10 @@ pxe-prompt="Netboot Orchestrator",0
 # Client Detection
 # ========================================
 
-# iPXE detection via option 175 (iPXE encapsulated options)
-# All iPXE builds send this; more reliable than vendor class
+# iPXE detection - multiple methods for reliability
+# Method 1: User class (option 77) - most widely supported
+dhcp-userclass=set:ipxe,iPXE
+# Method 2: Option 175 (iPXE feature flags) - backup detection
 dhcp-match=set:ipxe,175
 
 # Architecture detection (DHCP option 93)
@@ -207,10 +185,11 @@ dhcp-match=set:efi64,93,9
 # Boot File Assignment
 # ========================================
 
-# iPXE clients: serve the boot script (chains to HTTP API)
-dhcp-boot=tag:ipxe,undionly.ipxe,,${BOOT_IP}
+# iPXE clients: chain directly to HTTP boot menu API
+# (no TFTP intermediate step - faster and more reliable)
+dhcp-boot=tag:ipxe,http://${BOOT_IP}:8000/api/v1/boot/ipxe/menu
 
-# Legacy BIOS PXE: serve iPXE binary (becomes iPXE, then gets script)
+# Non-iPXE BIOS PXE: serve custom iPXE binary (has embedded boot script)
 dhcp-boot=tag:!ipxe,tag:bios,undionly.kpxe,,${BOOT_IP}
 
 # UEFI: serve iPXE EFI binary
