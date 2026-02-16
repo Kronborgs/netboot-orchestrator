@@ -18,20 +18,27 @@ echo "[TFTP] Preparing TFTP directory and bootloaders..."
 mkdir -p /data/tftp
 
 # Download binaries if missing or corrupt (< 10KB = corrupt/empty)
+# Note: ipxe.efi was removed from boot.ipxe.org; snponly.efi is the replacement
 MIN_SIZE=10000
-for file in undionly.kpxe ipxe.efi; do
-    filepath="/data/tftp/$file"
-    current_size=$(stat -c%s "$filepath" 2>/dev/null || echo 0)
+
+download_ipxe() {
+    local localname="$1"
+    local url="$2"
+    local filepath="/data/tftp/$localname"
+    local current_size=$(stat -c%s "$filepath" 2>/dev/null || echo 0)
     if [ "$current_size" -lt "$MIN_SIZE" ]; then
-        echo "[TFTP] Downloading $file..."
+        echo "[TFTP] Downloading $localname from $url ..."
         rm -f "$filepath"
-        curl -fSL -o "$filepath" "https://boot.ipxe.org/$file" || { echo "[ERROR] Failed to download $file"; exit 1; }
-        new_size=$(stat -c%s "$filepath")
-        echo "[TFTP] ✓ $file downloaded ($new_size bytes)"
+        curl -fSL -o "$filepath" "$url" || { echo "[ERROR] Failed to download $localname"; exit 1; }
+        local new_size=$(stat -c%s "$filepath")
+        echo "[TFTP] ✓ $localname downloaded ($new_size bytes)"
     else
-        echo "[TFTP] ✓ $file exists ($current_size bytes)"
+        echo "[TFTP] ✓ $localname exists ($current_size bytes)"
     fi
-done
+}
+
+download_ipxe "undionly.kpxe" "https://boot.ipxe.org/undionly.kpxe"
+download_ipxe "ipxe.efi"      "https://boot.ipxe.org/snponly.efi"
 
 # ====================================================
 # 2. Create iPXE boot scripts
