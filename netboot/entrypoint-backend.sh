@@ -3,6 +3,7 @@ set -e
 
 echo "============================================="
 echo " Netboot Orchestrator - Backend Services"
+echo " Designed by Kenneth Kronborg AI Team"
 echo "============================================="
 
 # ====================================================
@@ -117,6 +118,31 @@ MENU_EOF
 
 echo "[TFTP] ✓ Boot scripts created"
 
+# Raspberry Pi TFTP setup
+echo "[TFTP] Creating Raspberry Pi boot directories..."
+mkdir -p /data/tftp/raspi
+# Pi boot files (kernel, config.txt, cmdline.txt) should be placed
+# in /data/tftp/raspi/ or per-serial subdirectories.
+# The Pi's boot ROM will fetch them via TFTP.
+if [ ! -f /data/tftp/raspi/README.txt ]; then
+    cat > /data/tftp/raspi/README.txt << 'PI_README'
+Raspberry Pi Network Boot
+=========================
+Place boot files for Raspberry Pi here:
+  - Per-serial: /data/tftp/raspi/<serial>/
+  - Shared:     /data/tftp/raspi/
+
+Required files per Pi:
+  - start4.elf, fixup4.dat (from RPi firmware)
+  - config.txt (with kernel=kernel8.img, initramfs initrd.img followkernel)
+  - cmdline.txt (with root= iSCSI or NFS params)
+  - kernel8.img, initrd.img (Linux kernel + initramfs)
+
+The Netboot Orchestrator can generate these via the API/WebUI.
+PI_README
+fi
+echo "[TFTP] ✓ Raspberry Pi directories ready"
+
 # Show all TFTP files
 echo "[TFTP] TFTP root contents:"
 ls -lh /data/tftp/ 2>&1 | sed 's/^/  /'
@@ -201,6 +227,16 @@ dhcp-boot=tag:!ipxe,tag:efi32,ipxe.efi,,${BOOT_IP}
 pxe-service=tag:!ipxe,x86PC,"Netboot Orchestrator",undionly
 pxe-service=tag:!ipxe,x86-64_EFI,"Netboot Orchestrator",ipxe
 pxe-service=tag:!ipxe,BC_EFI,"Netboot Orchestrator",ipxe
+
+# ========================================
+# Raspberry Pi 4/5 Support
+# Pi sends vendor class "PXEClient:Arch:00000:UNDI:002001"
+# The Pi's boot ROM fetches files from TFTP at /<serial>/
+# We serve the boot files from /data/tftp/raspi/
+# ========================================
+dhcp-match=set:raspi,60,PXEClient:Arch:00011
+# Pi 4/5 ARM64 boot
+dhcp-boot=tag:raspi,bootcode.bin,,${BOOT_IP}
 DNSMASQ_EOF
 
 echo "[dnsmasq] ✓ Configuration generated (proxy DHCP mode)"
@@ -219,8 +255,11 @@ echo "[dnsmasq] Started with PID $DNSMASQ_PID"
 
 # Start tgtd (iSCSI)
 echo "[tgtd] Starting iSCSI target..."
+mkdir -p /iscsi-images
 /usr/sbin/tgtd -f &
 TGTD_PID=$!
+sleep 2
+echo "[tgtd] Started with PID $TGTD_PID"
 
 # Start FastAPI
 echo "[FastAPI] Starting API server on 0.0.0.0:8000..."
@@ -263,6 +302,9 @@ echo "   TFTP:    0.0.0.0:69  (proxy DHCP + TFTP)"
 echo "   API:     0.0.0.0:8000"
 echo "   iSCSI:   0.0.0.0:3260"
 echo "   Boot IP: $BOOT_IP"
+echo ""
+echo " Netboot Orchestrator is designed by"
+echo " Kenneth Kronborg AI Team"
 echo "============================================="
 
 # Wait for FastAPI (foreground process)

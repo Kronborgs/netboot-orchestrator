@@ -34,7 +34,7 @@ function App() {
             <div style={{ fontSize: '32px' }}>🚀</div>
             <div>
               <h1 style={{ margin: '0 0 2px 0', fontSize: '24px' }}>Netboot Orchestrator</h1>
-              <div style={{ fontSize: '12px', opacity: 0.9 }}>Network Boot Manager for Raspberry Pi & x86</div>
+              <div style={{ fontSize: '12px', opacity: 0.9 }}>Network Boot Manager — Designed by Kenneth Kronborg AI Team</div>
             </div>
           </div>
 
@@ -107,7 +107,8 @@ function App() {
         fontSize: '12px'
       }}>
         <div style={{ marginBottom: '8px' }}>🚀 Netboot Orchestrator {version && `v${version}`}</div>
-        <div>Network boot management for Raspberry Pi, x86, and x64 systems</div>
+        <div style={{ marginBottom: '4px' }}>Network boot management for Raspberry Pi, x86, and x64 systems</div>
+        <div style={{ opacity: 0.7 }}>Designed by Kenneth Kronborg AI Team</div>
       </footer>
     </div>
   );

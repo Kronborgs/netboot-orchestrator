@@ -1,12 +1,35 @@
 import os
+import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .api import v1, boot
 
+
+logger = logging.getLogger(__name__)
+
+BRANDING = "Netboot Orchestrator is designed by Kenneth Kronborg AI Team"
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup / shutdown events."""
+    # Restore iSCSI targets on start
+    try:
+        from .services.image_service import IscsiService
+        iscsi = IscsiService(images_path=os.getenv("IMAGES_PATH", "/iscsi-images"))
+        iscsi.restore_targets()
+        logger.info("iSCSI targets restored")
+    except Exception as e:
+        logger.warning(f"iSCSI target restore skipped: {e}")
+    yield
+
+
 app = FastAPI(
-    title="RPi Netboot Orchestrator",
-    description="Web-based orchestrator for SD-card-less netboot",
-    version="0.1.0"
+    title="Netboot Orchestrator",
+    description=f"Network boot management for Raspberry Pi, x86 & x64. {BRANDING}",
+    version="0.2.0",
+    lifespan=lifespan,
 )
 
 # Add CORS middleware
@@ -26,9 +49,10 @@ app.include_router(boot.router)
 @app.get("/")
 async def root():
     return {
-        "name": "RPi Netboot Orchestrator API",
-        "version": "0.1.0",
-        "docs": "/docs"
+        "name": "Netboot Orchestrator API",
+        "version": "0.2.0",
+        "branding": BRANDING,
+        "docs": "/docs",
     }
 
 

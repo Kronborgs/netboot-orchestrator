@@ -5,7 +5,8 @@ import { apiFetch } from '../api/client';
 interface Stats {
   activeDevices: number;
   totalDevices: number;
-  images: number;
+  iscsiImages: number;
+  linkedImages: number;
   osInstallers: number;
   storageUsed: number;
 }
@@ -14,7 +15,8 @@ export const Dashboard: React.FC = () => {
   const [stats, setStats] = useState<Stats>({
     activeDevices: 0,
     totalDevices: 0,
-    images: 0,
+    iscsiImages: 0,
+    linkedImages: 0,
     osInstallers: 0,
     storageUsed: 0
   });
@@ -36,7 +38,7 @@ export const Dashboard: React.FC = () => {
         storageRes
       ] = await Promise.all([
         apiFetch(`/api/v1/devices`),
-        apiFetch(`/api/v1/images`),
+        apiFetch(`/api/v1/boot/iscsi/images`),
         apiFetch(`/api/v1/os-installers/files`),
         apiFetch(`/api/v1/storage/info`)
       ]);
@@ -49,11 +51,13 @@ export const Dashboard: React.FC = () => {
       if (storageRes.ok) storage = await storageRes.json();
 
       const activeDevices = devices.filter((d: any) => d.enabled).length;
+      const linkedImages = images.filter((i: any) => i.assigned_to).length;
 
       setStats({
         activeDevices,
         totalDevices: devices.length,
-        images: images.length,
+        iscsiImages: images.length,
+        linkedImages,
         osInstallers: (osFiles as any).file_count || 0,
         storageUsed: (storage as any).total?.size_gb || 0
       });
@@ -100,10 +104,10 @@ export const Dashboard: React.FC = () => {
             color: 'var(--accent-orange)',
             marginBottom: '4px'
           }}>
-            {loading ? '-' : stats.images}
+            {loading ? '-' : stats.iscsiImages}
           </div>
           <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-            Ready to use
+            {stats.linkedImages} linked to devices
           </div>
         </div>
 

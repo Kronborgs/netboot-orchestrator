@@ -466,195 +466,39 @@ async def get_storage_info(file_service: FileService = Depends(get_file_service)
     return file_service.get_storage_info()
 
 
-# ==================== BOOT MENU ENDPOINTS ====================
-
-@router.get("/boot/ipxe/menu")
-async def boot_ipxe_menu(file_service: FileService = Depends(get_file_service)):
-    """
-    Generate iPXE boot menu script with available OS installers.
-    This endpoint is called by iPXE clients to get the boot menu.
-    
-    Uses iPXE menu/item/choose system for proper interactive menus.
-    """
-    # Get list of available OS installers
-    try:
-        result = file_service.list_os_installer_files()
-        installers = result.get('files', [])
-    except Exception as e:
-        installers = []
-    
-    boot_server_ip = os.getenv("BOOT_SERVER_IP", "192.168.1.50")
-    version = get_version()
-    
-    # Categorize installers by OS type
-    def categorize(filename: str) -> str:
-        fl = filename.lower()
-        if any(w in fl for w in ['windows', 'win10', 'win11', 'winpe', 'server2']):
-            return 'Windows'
-        elif any(w in fl for w in ['ubuntu', 'debian', 'fedora', 'centos', 'rhel', 'rocky', 'alma', 'arch', 'mint', 'opensuse', 'suse', 'linux']):
-            return 'Linux'
-        elif any(w in fl for w in ['proxmox', 'esxi', 'vmware', 'truenas', 'freenas', 'opnsense', 'pfsense', 'unraid']):
-            return 'Infrastructure'
-        else:
-            return 'Other'
-    
-    def format_size(size_bytes: int) -> str:
-        if size_bytes <= 0:
-            return "N/A"
-        gb = size_bytes / (1024**3)
-        if gb >= 1:
-            return f"{gb:.1f} GB"
-        mb = size_bytes / (1024**2)
-        return f"{mb:.0f} MB"
-    
-    # Build iPXE menu script
-    menu_script = f"""#!ipxe
-# Netboot Orchestrator v{version}
-# Boot menu generated dynamically by API
-
-:menu
-menu ========== Netboot Orchestrator v{version} ==========
-item --gap --
-item --gap --  MAC: ${{net0/mac}}  |  IP: ${{net0/ip}}
-item --gap --  Gateway: ${{net0/gateway}}
-item --gap --
-"""
-    
-    if installers:
-        # Group by category
-        categories: dict = {}
-        for inst in installers:
-            cat = categorize(inst['filename'])
-            categories.setdefault(cat, []).append(inst)
-        
-        # Preferred category order
-        cat_order = ['Windows', 'Linux', 'Infrastructure', 'Other']
-        idx = 0
-        
-        for cat in cat_order:
-            if cat not in categories:
-                continue
-            menu_script += f"item --gap --  --- {cat} ---\n"
-            for inst in categories[cat]:
-                idx += 1
-                label = f"os_{idx}"
-                name = inst['filename'][:45]
-                size = format_size(inst.get('size_bytes', 0))
-                menu_script += f"item {label}    {name}  [{size}]\n"
-            menu_script += "item --gap --\n"
-        
-        menu_script += "item --gap --  --- Tools ---\n"
-        menu_script += "item shell     iPXE Shell\n"
-        menu_script += "item reboot    Reboot\n"
-        menu_script += "item --gap --\n"
-        menu_script += "choose selected || goto shell\n"
-        menu_script += "goto ${selected}\n\n"
-        
-        # Add goto targets for each installer
-        idx = 0
-        for cat in cat_order:
-            if cat not in categories:
-                continue
-            for inst in categories[cat]:
-                idx += 1
-                label = f"os_{idx}"
-                name = inst['filename'][:50]
-                path = inst['path']
-                url = f"http://{boot_server_ip}:8000/api/v1/os-installers/download/{path}"
-                
-                menu_script += f""":{label}
-echo
-echo ================================================
-echo  Loading: {name}
-echo  Source:  {url}
-echo ================================================
-echo
-chain {url} || goto failed
-goto menu
-
-"""
-    else:
-        menu_script += """item --gap --  No OS installers found
-item --gap --
-item --gap --  Upload ISOs via the Web UI or place
-item --gap --  them in the /isos directory
-item --gap --
-item shell     iPXE Shell
-item reboot    Reboot
-item --gap --
-choose selected || goto shell
-goto ${selected}
-
-"""
-    
-    menu_script += """:failed
-echo
-echo !! Download failed - returning to menu in 5s...
-sleep 5
-goto menu
-
-:shell
-echo
-echo Type 'exit' to return to menu
-echo
-shell
-goto menu
-
-:reboot
-reboot
-"""
-    
-    return PlainTextResponse(menu_script)
-
-
+# ==================== BOOT DEVICE REGISTRATION ====================
 
 @router.get("/boot/devices/{mac}")
 async def register_boot_device(mac: str, db: Database = Depends(get_db)):
-    """
-    Register a device for network boot.
-    This endpoint is called by iPXE to register the booting device.
-    """
+    """Register a device for network boot."""
     device = db.get_device(mac)
-    
     if not device:
-        # Create new device record if it doesn't exist
         device = {
             "mac": mac,
             "device_type": "unknown",
             "name": f"Unnamed Device ({mac})",
             "image_id": None,
-            "installation_target": "http"
+            "installation_target": "http",
         }
         db.create_device(mac, device)
-    
-    return {
-        "status": "registered",
-        "mac": mac,
-        "device_info": device
-    }
+    return {"status": "registered", "mac": mac, "device_info": device}
+
+
+# ==================== OS INSTALLER DOWNLOAD ====================
 
 @router.get("/os-installers/download/{file_path:path}")
 async def download_os_installer(file_path: str, file_service: FileService = Depends(get_file_service)):
-    """
-    Download an OS installer file.
-    This endpoint serves OS installer files to iPXE clients.
-    """
+    """Serve OS installer files to iPXE clients."""
     try:
-        # Construct full path
         full_path = Path(os.getenv("OS_INSTALLERS_PATH", "/data/os-installers")) / file_path
-        
-        # Security check - prevent path traversal
-        if not full_path.resolve().is_relative_to(Path(os.getenv("OS_INSTALLERS_PATH", "/data/os-installers")).resolve()):
+        if not full_path.resolve().is_relative_to(
+            Path(os.getenv("OS_INSTALLERS_PATH", "/data/os-installers")).resolve()
+        ):
             raise HTTPException(status_code=403, detail="Access denied")
-        
-        # Check if file exists
         if not full_path.exists() or not full_path.is_file():
             raise HTTPException(status_code=404, detail="File not found")
-        
         return FileResponse(full_path, filename=full_path.name)
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-

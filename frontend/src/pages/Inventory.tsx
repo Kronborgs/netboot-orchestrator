@@ -1,16 +1,18 @@
 import React from 'react';
 import { ImageManagement } from '../components/ImageManagement';
+import { IscsiManagement } from '../components/IscsiManagement';
 import { OsInstallerList } from '../components/OsInstallerList';
 import { UnknownDeviceWizard } from '../components/UnknownDeviceWizard';
 import { DeviceList } from '../components/DeviceList';
+import { BootLogs } from '../components/BootLogs';
 
 export const Inventory: React.FC = () => {
-  const [activeTab, setActiveTab] = React.useState<'devices' | 'images' | 'installers' | 'wizard'>('devices');
+  const [activeTab, setActiveTab] = React.useState<'devices' | 'iscsi' | 'installers' | 'logs' | 'wizard'>('devices');
 
   return (
     <div className="inventory">
       <h1>📦 Inventory & Management</h1>
-      <p style={{ color: 'var(--text-secondary)' }}>Manage devices, images, and OS installers for network booting</p>
+      <p style={{ color: 'var(--text-secondary)' }}>Manage devices, iSCSI images, OS installers, and boot activity</p>
 
       <div className="tabs">
         <button
@@ -20,16 +22,22 @@ export const Inventory: React.FC = () => {
           🖥️ Devices
         </button>
         <button
-          className={`tab-button ${activeTab === 'images' ? 'active' : ''}`}
-          onClick={() => setActiveTab('images')}
+          className={`tab-button ${activeTab === 'iscsi' ? 'active' : ''}`}
+          onClick={() => setActiveTab('iscsi')}
         >
-          💿 Images
+          💿 iSCSI Images
         </button>
         <button
           className={`tab-button ${activeTab === 'installers' ? 'active' : ''}`}
           onClick={() => setActiveTab('installers')}
         >
           🖱️ OS Installers
+        </button>
+        <button
+          className={`tab-button ${activeTab === 'logs' ? 'active' : ''}`}
+          onClick={() => setActiveTab('logs')}
+        >
+          📡 Boot Logs
         </button>
         <button
           className={`tab-button ${activeTab === 'wizard' ? 'active' : ''}`}
@@ -41,8 +49,9 @@ export const Inventory: React.FC = () => {
 
       <div className="tab-content active" style={{ marginTop: '24px' }}>
         {activeTab === 'devices' && <DeviceList />}
-        {activeTab === 'images' && <ImageManagement />}
+        {activeTab === 'iscsi' && <IscsiManagement />}
         {activeTab === 'installers' && <OsInstallerList />}
+        {activeTab === 'logs' && <BootLogs />}
         {activeTab === 'wizard' && <UnknownDeviceWizard />}
       </div>
     </div>

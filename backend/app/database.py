@@ -15,6 +15,7 @@ class Database:
         self.os_file = self.data_path / "os.json"
         self.settings_file = self.data_path / "settings.json"
         self.unknown_devices_file = self.data_path / "unknown_devices.json"
+        self.boot_logs_file = self.data_path / "boot_logs.json"
         
         # Initialize files if they don't exist
         self._init_files()
@@ -31,6 +32,8 @@ class Database:
             self._write_json(self.settings_file, {"kernel_sets": {"default": {"kernel_url": "", "initramfs_url": ""}}})
         if not self.unknown_devices_file.exists():
             self._write_json(self.unknown_devices_file, {})
+        if not self.boot_logs_file.exists():
+            self._write_json(self.boot_logs_file, [])
     
     def _read_json(self, file_path: Path) -> Dict[str, Any]:
         """Read JSON file safely."""
@@ -172,3 +175,32 @@ class Database:
             self._write_json(self.unknown_devices_file, unknown)
             return True
         return False
+
+    # Boot log operations
+    def add_boot_log(self, mac: str, event: str, details: str = "", ip: str = "") -> Dict:
+        """Record a boot event."""
+        logs = self._read_json(self.boot_logs_file)
+        if not isinstance(logs, list):
+            logs = []
+        entry = {
+            "mac": mac,
+            "event": event,
+            "details": details,
+            "ip": ip,
+            "timestamp": datetime.now().isoformat(),
+        }
+        logs.append(entry)
+        # Keep last 500 log entries
+        if len(logs) > 500:
+            logs = logs[-500:]
+        self._write_json(self.boot_logs_file, logs)
+        return entry
+
+    def get_boot_logs(self, mac: str = None, limit: int = 100) -> List[Dict]:
+        """Get boot logs, optionally filtered by MAC."""
+        logs = self._read_json(self.boot_logs_file)
+        if not isinstance(logs, list):
+            return []
+        if mac:
+            logs = [l for l in logs if l.get("mac") == mac]
+        return list(reversed(logs[-limit:]))
