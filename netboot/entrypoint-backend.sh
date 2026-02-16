@@ -185,8 +185,21 @@ bind-dynamic
 # Proxy DHCP (PXE boot options only)
 # No IP assignment - existing DHCP server handles that
 # ========================================
-dhcp-range=10.10.50.0,proxy
-dhcp-range=192.168.1.0,proxy
+DNSMASQ_EOF
+
+# Generate dhcp-range lines from DHCP_SUBNETS environment variable
+# Format: comma-separated subnets, e.g. "10.10.50.0,192.168.1.0,172.16.0.0"
+# Default: "10.10.50.0,192.168.1.0"
+SUBNETS="${DHCP_SUBNETS:-10.10.50.0,192.168.1.0}"
+echo "[dnsmasq] Configuring proxy DHCP for subnets: $SUBNETS"
+IFS=',' read -ra SUBNET_ARRAY <<< "$SUBNETS"
+for subnet in "${SUBNET_ARRAY[@]}"; do
+    subnet=$(echo "$subnet" | xargs)  # trim whitespace
+    echo "dhcp-range=${subnet},proxy" >> /etc/dnsmasq.d/netboot.conf
+    echo "[dnsmasq]   + ${subnet} (proxy)"
+done
+
+cat >> /etc/dnsmasq.d/netboot.conf << DNSMASQ_EOF
 
 # Make PXE clients boot immediately (no menu delay)
 pxe-prompt="Netboot Orchestrator",0
@@ -252,7 +265,18 @@ echo "[dnsmasq] Starting TFTP + Proxy DHCP server..."
 /usr/sbin/dnsmasq -C /etc/dnsmasq.d/netboot.conf -d &
 DNSMASQ_PID=$!
 echo "[dnsmasq] Started with PID $DNSMASQ_PID"
-
+# Start nginx (Frontend WebUI) if available
+if [ -d /var/www/html ] && [ -f /etc/nginx/sites-available/default ]; then
+    echo "[nginx] Starting WebUI on port 30000..."
+    # Ensure nginx default site uses our config
+    rm -f /etc/nginx/sites-enabled/default 2>/dev/null
+    ln -sf /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default 2>/dev/null
+    nginx -t 2>/dev/null && nginx &
+    NGINX_PID=$!
+    echo "[nginx] WebUI started on port 30000 (PID $NGINX_PID)"
+else
+    echo "[nginx] Frontend not bundled, skipping WebUI (use separate frontend container)"
+fi
 # Start tgtd (iSCSI)
 echo "[tgtd] Starting iSCSI target..."
 mkdir -p /iscsi-images
@@ -300,6 +324,7 @@ echo "============================================="
 echo " All services started successfully"
 echo "   TFTP:    0.0.0.0:69  (proxy DHCP + TFTP)"
 echo "   API:     0.0.0.0:8000"
+echo "   WebUI:   0.0.0.0:30000"
 echo "   iSCSI:   0.0.0.0:3260"
 echo "   Boot IP: $BOOT_IP"
 echo ""

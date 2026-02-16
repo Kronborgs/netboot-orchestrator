@@ -1,0 +1,48 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>netboot-orchestrator</Name>
+  <Repository>ghcr.io/kronborgs/netboot-orchestrator:latest</Repository>
+  <Registry>https://github.com/Kronborgs/netboot-orchestrator/pkgs/container/netboot-orchestrator</Registry>
+  <Network>host</Network>
+  <MyIP/>
+  <Shell>bash</Shell>
+  <Privileged>true</Privileged>
+  <Support>https://github.com/Kronborgs/netboot-orchestrator/issues</Support>
+  <Project>https://github.com/Kronborgs/netboot-orchestrator</Project>
+  <Overview>
+    Netboot Orchestrator - Network Boot Manager for x86, x64 and Raspberry Pi.
+    
+    Features: PXE/iPXE boot menu, iSCSI image management, OS installer browser, boot logging, WebUI dashboard.
+    
+    Services: dnsmasq (proxy DHCP + TFTP), FastAPI (REST API), tgtd (iSCSI), nginx (WebUI).
+    
+    Designed by Kenneth Kronborg AI Team.
+  </Overview>
+  <Category>Network:Management Tools:</Category>
+  <WebUI>http://[IP]:[PORT:30000]</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/Kronborgs/netboot-orchestrator/main/unraid-template.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/Kronborgs/netboot-orchestrator/main/docs/icon.png</Icon>
+  <ExtraParams>--cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SYS_ADMIN</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="WebUI Port" Target="30000" Default="30000" Mode="tcp" Description="Web interface port" Type="Port" Display="always" Required="true" Mask="false">30000</Config>
+  <Config Name="API Port" Target="8000" Default="8000" Mode="tcp" Description="REST API port (used by iPXE boot menu)" Type="Port" Display="always" Required="true" Mask="false">8000</Config>
+  <Config Name="TFTP Port" Target="69" Default="69" Mode="udp" Description="TFTP port for PXE boot" Type="Port" Display="always" Required="true" Mask="false">69</Config>
+  <Config Name="DHCP Port" Target="67" Default="67" Mode="udp" Description="Proxy DHCP port" Type="Port" Display="always" Required="true" Mask="false">67</Config>
+  <Config Name="iSCSI Port" Target="3260" Default="3260" Mode="tcp" Description="iSCSI target port" Type="Port" Display="always" Required="true" Mask="false">3260</Config>
+  <Config Name="Data Path" Target="/data" Default="/mnt/user/appdata/netboot-orchestrator" Mode="rw" Description="Configuration data, TFTP files, boot logs (persistent)" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/netboot-orchestrator</Config>
+  <Config Name="ISO / OS Installers Path" Target="/isos" Default="/mnt/user/isos" Mode="ro" Description="Path to your OS installer ISOs (Windows, Linux, etc.). Read-only mount." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/isos</Config>
+  <Config Name="iSCSI Images Path" Target="/iscsi-images" Default="/mnt/user/appdata/netboot-orchestrator/iscsi-images" Mode="rw" Description="Path to store iSCSI disk images. Needs fast storage (SSD recommended)." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/netboot-orchestrator/iscsi-images</Config>
+  <Config Name="Boot Server IP" Target="BOOT_SERVER_IP" Default="192.168.1.50" Mode="" Description="IP address of this Unraid server (used in boot menu URLs and iSCSI targets)" Type="Variable" Display="always" Required="true" Mask="false">192.168.1.50</Config>
+  <Config Name="DHCP Subnets" Target="DHCP_SUBNETS" Default="192.168.1.0" Mode="" Description="Comma-separated subnets for proxy DHCP. Example: 192.168.1.0,10.10.50.0,172.16.0.0" Type="Variable" Display="always" Required="true" Mask="false">192.168.1.0</Config>
+  <Config Name="OS Installers Path (env)" Target="OS_INSTALLERS_PATH" Default="/isos" Mode="" Description="Internal container path for OS installers (matches ISO mount above)" Type="Variable" Display="advanced" Required="false" Mask="false">/isos</Config>
+  <Config Name="iSCSI Images Path (env)" Target="IMAGES_PATH" Default="/iscsi-images" Mode="" Description="Internal container path for iSCSI images (matches mount above)" Type="Variable" Display="advanced" Required="false" Mask="false">/iscsi-images</Config>
+  <Config Name="Data Path (env)" Target="DATA_PATH" Default="/data" Mode="" Description="Internal container data path" Type="Variable" Display="advanced" Required="false" Mask="false">/data</Config>
+  <Config Name="API Host" Target="API_HOST" Default="0.0.0.0" Mode="" Description="API listen address" Type="Variable" Display="advanced" Required="false" Mask="false">0.0.0.0</Config>
+  <Config Name="API Port (env)" Target="API_PORT" Default="8000" Mode="" Description="API listen port" Type="Variable" Display="advanced" Required="false" Mask="false">8000</Config>
+  <Config Name="Log Level" Target="LOG_LEVEL" Default="INFO" Mode="" Description="Logging level (DEBUG, INFO, WARNING, ERROR)" Type="Variable" Display="advanced" Required="false" Mask="false">INFO</Config>
+</Container>

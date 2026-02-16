@@ -1,42 +1,47 @@
+## =====================================================================
+## Netboot Orchestrator - Docker Compose
+## Designed by Kenneth Kronborg AI Team
+## =====================================================================
+## All-in-one container: iPXE + dnsmasq + tgtd + FastAPI + nginx
+##
+## Quick start with pre-built image:
+##   1. Edit the environment variables below
+##   2. docker-compose up -d
+##
+## Or build locally:
+##   1. Comment out `image:` and uncomment `build:`
+##   2. docker-compose build --no-cache && docker-compose up -d
+## =====================================================================
+
 services:
-  netboot-backend:
-    build:
-      context: .
-      dockerfile: netboot/Dockerfile.backend
-    container_name: netboot-backend
+  netboot:
+    image: ghcr.io/kronborgs/netboot-orchestrator:latest
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    container_name: netboot-orchestrator
     network_mode: host
     volumes:
       - ./data:/data
-      - /mnt/user/isos:/isos
-      - /mnt/isos/netbootimg/iscsi:/iscsi-images
+      - /mnt/user/isos:/isos:ro
+      - /mnt/user/appdata/netboot-orchestrator/iscsi-images:/iscsi-images
     environment:
-      # API Configuration
-      - API_HOST=0.0.0.0
-      - API_PORT=8000
-      - DATA_PATH=/data
+      # Boot server IP (your Unraid IP)
+      - BOOT_SERVER_IP=192.168.1.50
+      # Subnets for proxy DHCP (comma-separated)
+      # Add all VLANs/subnets that PXE clients boot from
+      - DHCP_SUBNETS=192.168.1.0,10.10.50.0
+      # Paths (match volume mounts above)
       - OS_INSTALLERS_PATH=/isos
       - IMAGES_PATH=/iscsi-images
+      - DATA_PATH=/data
+      # API
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
       - LOG_LEVEL=INFO
-      # Boot server IP
-      - BOOT_SERVER_IP=192.168.1.50
     privileged: true
     cap_add:
       - NET_ADMIN
       - NET_RAW
       - SYS_ADMIN
-      - SYS_PTRACE
-    security_opt:
-      - apparmor:unconfined
-    restart: unless-stopped
-
-  netboot-frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        VITE_API_URL: http://localhost:8000
-    container_name: netboot-frontend
-    network_mode: host
-    environment:
-      - VITE_API_URL=http://localhost:8000
     restart: unless-stopped
