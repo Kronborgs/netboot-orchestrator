@@ -508,7 +508,7 @@ item --gap --
         menu_script += "item --gap --\n"
         menu_script += "item shell     Drop to iPXE Shell\n"
         menu_script += "item reboot    Reboot\n"
-        menu_script += "choose --timeout 120 --default installer_1 selected || goto shell\n"
+        menu_script += "choose selected || goto shell\n"
         menu_script += "goto ${selected}\n\n"
         
         # Add goto targets for each installer
@@ -532,7 +532,7 @@ item --gap --  Add ISOs to /isos to populate this menu
 item --gap --
 item shell     Drop to iPXE Shell
 item reboot    Reboot
-choose --timeout 60 --default shell selected || goto shell
+choose selected || goto shell
 goto ${selected}
 
 """
