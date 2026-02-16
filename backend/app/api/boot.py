@@ -76,21 +76,24 @@ async def boot_ipxe_main_menu(db: Database = Depends(get_db)):
 # {BRANDING}
 
 :main_menu
-menu ============================================ Netboot Orchestrator v{version} ============================================
+menu ========= Netboot Orchestrator v{version} =========
 item --gap --
-item --gap --  {BRANDING}
+item --gap --  Designed by Kenneth Kronborg AI Team
 item --gap --
-item --gap --  MAC: ${{net0/mac}}  |  IP: ${{net0/ip}}  |  Gateway: ${{net0/gateway}}
+item --gap --  Device Info:
+item --gap --  MAC:     ${{net0/mac}}
+item --gap --  IP:      ${{net0/ip}}
+item --gap --  Gateway: ${{net0/gateway}}
 item --gap --
-item --gap --  ─── Main Menu ───
+item --gap --  ==== Main Menu ====
 item os_install    OS Installers  >>
 item create_iscsi  Create iSCSI Image  >>
 item link_iscsi    Link Device to iSCSI Image  >>
 item boot_iscsi    Boot from iSCSI
 item --gap --
-item --gap --  ─── Info & Tools ───
-item device_info   Device Info
+item --gap --  ==== Info & Tools ====
 item shell         iPXE Shell
+item device_info   Device Info
 item reboot        Reboot
 item --gap --
 choose selected || goto shell
@@ -177,13 +180,13 @@ item --gap --
         script += f'item back       << Back\n'
 
     if folders:
-        script += "item --gap --  ─── Folders ───\n"
+        script += "item --gap --  ---- Folders ----\n"
         for idx, folder in enumerate(folders):
             label = f"folder_{idx}"
-            script += f'item {label}    📁 {folder["name"]}  [{folder.get("size_display", "")}]\n'
+            script += f'item {label}    [DIR] {folder["name"]}  [{folder.get("size_display", "")}]\n'
 
     if files:
-        script += "item --gap --  ─── OS Images ───\n"
+        script += "item --gap --  ---- OS Images ----\n"
         for idx, f in enumerate(files):
             label = f"file_{idx}"
             name = f["name"][:50]
