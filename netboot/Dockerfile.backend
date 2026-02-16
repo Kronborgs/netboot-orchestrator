@@ -44,6 +44,7 @@ COPY --from=ipxe-builder /build/ipxe/src/bin/undionly.kpxe /opt/ipxe/undionly.kp
 
 # Copy FastAPI backend code
 COPY backend /app/backend/
+COPY VERSION /app/VERSION
 WORKDIR /app/backend
 
 # Copy entrypoint script

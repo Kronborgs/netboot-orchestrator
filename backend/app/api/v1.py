@@ -16,12 +16,16 @@ router = APIRouter(prefix="/api/v1", tags=["v1"])
 def get_version() -> str:
     """Read version from VERSION file or return default."""
     try:
-        version_file = Path(__file__).parent.parent.parent.parent / "VERSION"
-        if version_file.exists():
-            return version_file.read_text().strip()
+        # Try /app/VERSION first (Docker), then relative to project root
+        for path in [
+            Path("/app/VERSION"),
+            Path(__file__).parent.parent.parent.parent / "VERSION",
+        ]:
+            if path.exists():
+                return path.read_text().strip()
     except Exception:
         pass
-    return "2026-02-15-V1"
+    return "unknown"
 
 
 def get_db() -> Database:
