@@ -252,13 +252,13 @@ chain {base}/ipxe/os-menu?path={folder_path} || goto os_menu
 
         # Choose boot method based on file type
         if ext in ('iso', 'img'):
-            boot_cmd = f"sanboot {url}"
+            boot_cmd = f"sanboot --no-describe {url}"
         elif ext == 'ipxe':
             boot_cmd = f"chain {url}"
         elif ext == 'efi':
             boot_cmd = f"chain {url}"
         else:
-            boot_cmd = f"sanboot {url}"
+            boot_cmd = f"sanboot --no-describe {url}"
 
         script += f""":{f'file_{idx}'}
 echo

@@ -1,5 +1,5 @@
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Query
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Query, Request
+from fastapi.responses import FileResponse, PlainTextResponse, Response, StreamingResponse
 from typing import List
 from pathlib import Path
 from ..models import (
@@ -9,6 +9,10 @@ from ..models import (
 from ..database import Database
 from ..services.file_service import FileService
 import os
+import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["v1"])
 
@@ -486,18 +490,103 @@ async def register_boot_device(mac: str, db: Database = Depends(get_db)):
 
 # ==================== OS INSTALLER DOWNLOAD ====================
 
+def _resolve_installer_path(file_path: str) -> Path:
+    """Resolve and validate an OS installer file path."""
+    base = Path(os.getenv("OS_INSTALLERS_PATH", "/data/os-installers"))
+    full_path = base / file_path
+    if not full_path.resolve().is_relative_to(base.resolve()):
+        raise HTTPException(status_code=403, detail="Access denied")
+    if not full_path.exists() or not full_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    return full_path
+
+
+@router.head("/os-installers/download/{file_path:path}")
+async def head_os_installer(file_path: str):
+    """HEAD handler for OS installer files.
+
+    iPXE's sanboot sends HEAD first to discover file size and
+    whether the server supports range requests.  Without an explicit
+    HEAD that returns Accept-Ranges, sanboot aborts with 4xx.
+    """
+    full_path = _resolve_installer_path(file_path)
+    stat = full_path.stat()
+    return Response(
+        status_code=200,
+        headers={
+            "Content-Length": str(stat.st_size),
+            "Accept-Ranges": "bytes",
+            "Content-Type": "application/octet-stream",
+        },
+    )
+
+
 @router.get("/os-installers/download/{file_path:path}")
-async def download_os_installer(file_path: str, file_service: FileService = Depends(get_file_service)):
-    """Serve OS installer files to iPXE clients."""
+async def download_os_installer(
+    file_path: str,
+    request: Request,
+    file_service: FileService = Depends(get_file_service),
+):
+    """Serve OS installer files with HTTP Range support.
+
+    iPXE sanboot reads ISOs as HTTP block devices using Range requests.
+    This endpoint handles:
+      - Regular GET  -> 200 with full file
+      - Range GET    -> 206 with partial content
+      - HEAD         -> handled by head_os_installer above
+    """
     try:
-        full_path = Path(os.getenv("OS_INSTALLERS_PATH", "/data/os-installers")) / file_path
-        if not full_path.resolve().is_relative_to(
-            Path(os.getenv("OS_INSTALLERS_PATH", "/data/os-installers")).resolve()
-        ):
-            raise HTTPException(status_code=403, detail="Access denied")
-        if not full_path.exists() or not full_path.is_file():
-            raise HTTPException(status_code=404, detail="File not found")
-        return FileResponse(full_path, filename=full_path.name)
+        full_path = _resolve_installer_path(file_path)
+        file_size = full_path.stat().st_size
+
+        # Check for Range header (iPXE sanboot uses this)
+        range_header = request.headers.get("range")
+        if range_header:
+            range_match = re.match(r"bytes=(\d+)-(\d*)", range_header)
+            if range_match:
+                start = int(range_match.group(1))
+                end = int(range_match.group(2)) if range_match.group(2) else file_size - 1
+                if start >= file_size:
+                    return Response(
+                        status_code=416,
+                        headers={
+                            "Content-Range": f"bytes */{file_size}",
+                        },
+                    )
+                end = min(end, file_size - 1)
+                content_length = end - start + 1
+
+                logger.debug(f"Range request: bytes={start}-{end}/{file_size} for {file_path}")
+
+                def iter_file():
+                    with open(full_path, "rb") as f:
+                        f.seek(start)
+                        remaining = content_length
+                        while remaining > 0:
+                            chunk_size = min(65536, remaining)
+                            chunk = f.read(chunk_size)
+                            if not chunk:
+                                break
+                            remaining -= len(chunk)
+                            yield chunk
+
+                return StreamingResponse(
+                    iter_file(),
+                    status_code=206,
+                    headers={
+                        "Content-Range": f"bytes {start}-{end}/{file_size}",
+                        "Content-Length": str(content_length),
+                        "Accept-Ranges": "bytes",
+                        "Content-Type": "application/octet-stream",
+                    },
+                )
+
+        # No Range header -> serve full file
+        return FileResponse(
+            full_path,
+            filename=full_path.name,
+            headers={"Accept-Ranges": "bytes"},
+        )
     except HTTPException:
         raise
     except Exception as e:
