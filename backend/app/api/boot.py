@@ -335,13 +335,12 @@ echo  Target:     {iscsi.iqn_prefix}:{image_name}
 echo  Server:     {iscsi.boot_server_ip}
 echo
 echo  The image has been linked to this device.
-echo  You can now install an OS via "OS Installers"
-echo  then boot from iSCSI.
+echo  Loading OS Installers menu...
 echo
 echo ================================================
 echo
-prompt Press any key to return to menu...
-chain {base}/ipxe/menu
+prompt Press any key to continue to OS Installers...
+chain {base}/ipxe/os-menu
 """
     else:
         error = result.get("error", "Unknown error")
