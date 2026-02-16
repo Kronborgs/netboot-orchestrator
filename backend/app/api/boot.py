@@ -19,6 +19,8 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import PlainTextResponse
 from typing import Optional
 from pathlib import Path
+from urllib.parse import quote
+import unicodedata
 from ..database import Database
 from ..services.file_service import FileService
 from ..services.image_service import IscsiService
@@ -30,6 +32,23 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/boot", tags=["boot"])
 
 BRANDING = "Netboot Orchestrator is designed by Kenneth Kronborg AI Team"
+
+
+def _ascii_safe(text: str) -> str:
+    """Convert text to ASCII-safe for iPXE display.
+    Replaces Unicode quotes, dashes, etc. with ASCII equivalents."""
+    replacements = {
+        "\u2018": "'", "\u2019": "'",  # smart single quotes
+        "\u201c": '"', "\u201d": '"',  # smart double quotes
+        "\u2013": "-", "\u2014": "--", # en-dash, em-dash
+        "\u2026": "...",                # ellipsis
+        "\u00e9": "e", "\u00e8": "e",  # accented e
+        "\u00f6": "o", "\u00fc": "u",  # umlauts
+    }
+    for uc, asc in replacements.items():
+        text = text.replace(uc, asc)
+    # Strip any remaining non-ASCII
+    return text.encode("ascii", errors="replace").decode("ascii")
 
 
 def get_db() -> Database:
@@ -160,7 +179,7 @@ async def boot_ipxe_os_menu(
     result = file_service.get_folder_contents(path, is_images=False)
     items = result.get("items", [])
 
-    breadcrumb = f"/{path}" if path else "/ (root)"
+    breadcrumb = _ascii_safe(f"/{path}") if path else "/ (root)"
 
     script = f"""#!ipxe
 # {BRANDING}
@@ -183,13 +202,14 @@ item --gap --
         script += "item --gap --  ---- Folders ----\n"
         for idx, folder in enumerate(folders):
             label = f"folder_{idx}"
-            script += f'item {label}    [DIR] {folder["name"]}  [{folder.get("size_display", "")}]\n'
+            display_name = _ascii_safe(folder["name"])
+            script += f'item {label}    [DIR] {display_name}  [{folder.get("size_display", "")}]\n'
 
     if files:
         script += "item --gap --  ---- OS Images ----\n"
         for idx, f in enumerate(files):
             label = f"file_{idx}"
-            name = f["name"][:50]
+            name = _ascii_safe(f["name"][:50])
             size = f.get("size_display", "")
             script += f'item {label}    {name}  [{size}]\n'
 
@@ -207,7 +227,8 @@ goto ${selected}
     # Goto targets for back
     if path:
         parent = "/".join(path.rstrip("/").split("/")[:-1])
-        parent_query = f"?path={parent}" if parent else ""
+        parent_encoded = quote(parent, safe='/') if parent else ""
+        parent_query = f"?path={parent_encoded}" if parent else ""
         script += f""":back
 chain {base}/ipxe/os-menu{parent_query} || goto os_menu
 
@@ -215,17 +236,30 @@ chain {base}/ipxe/os-menu{parent_query} || goto os_menu
 
     # Goto targets for folders
     for idx, folder in enumerate(folders):
-        folder_path = folder["path"]
+        folder_path = quote(folder["path"], safe='/')
         script += f""":folder_{idx}
 chain {base}/ipxe/os-menu?path={folder_path} || goto os_menu
 
 """
 
-    # Goto targets for files (download/chain)
+    # Goto targets for files (download via sanboot for ISOs, chain for iPXE scripts)
     for idx, f in enumerate(files):
         file_path = f["path"]
-        url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{file_path}"
-        name = f["name"][:50]
+        encoded_path = quote(file_path, safe='/')
+        url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{encoded_path}"
+        name = _ascii_safe(f["name"][:50])
+        ext = f["name"].lower().rsplit('.', 1)[-1] if '.' in f["name"] else ''
+
+        # Choose boot method based on file type
+        if ext in ('iso', 'img'):
+            boot_cmd = f"sanboot {url}"
+        elif ext == 'ipxe':
+            boot_cmd = f"chain {url}"
+        elif ext == 'efi':
+            boot_cmd = f"chain {url}"
+        else:
+            boot_cmd = f"sanboot {url}"
+
         script += f""":{f'file_{idx}'}
 echo
 echo ================================================
@@ -233,7 +267,7 @@ echo  Loading: {name}
 echo  Source:  {url}
 echo ================================================
 echo
-chain {url} || goto os_failed
+{boot_cmd} || goto os_failed
 goto os_menu
 
 """
