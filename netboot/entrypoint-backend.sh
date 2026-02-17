@@ -266,11 +266,11 @@ echo "[dnsmasq] Starting TFTP + Proxy DHCP server..."
 DNSMASQ_PID=$!
 echo "[dnsmasq] Started with PID $DNSMASQ_PID"
 # Start nginx (Frontend WebUI) if available
-if [ -d /var/www/html ] && [ -f /etc/nginx/sites-available/default ]; then
+if [ -d /usr/share/nginx/html ] && [ -f /etc/nginx/sites-available/netboot ]; then
     echo "[nginx] Starting WebUI on port 30000..."
-    # Ensure nginx default site uses our config
+    # Ensure our site config is enabled (not the default)
     rm -f /etc/nginx/sites-enabled/default 2>/dev/null
-    ln -sf /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default 2>/dev/null
+    ln -sf /etc/nginx/sites-available/netboot /etc/nginx/sites-enabled/netboot 2>/dev/null
     nginx -t 2>/dev/null && nginx &
     NGINX_PID=$!
     echo "[nginx] WebUI started on port 30000 (PID $NGINX_PID)"

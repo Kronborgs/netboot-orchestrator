@@ -65,11 +65,13 @@ RUN mkdir -p /data/tftp /app/backend /etc/dnsmasq.d /opt/ipxe /iscsi-images
 # Copy custom iPXE binary
 COPY --from=ipxe-builder /build/ipxe/src/bin/undionly.kpxe /opt/ipxe/undionly.kpxe
 
-# Copy frontend build
-COPY --from=frontend-builder /app/dist /var/www/html
+# Copy frontend build to the path our nginx config expects
+COPY --from=frontend-builder /app/dist /usr/share/nginx/html
 
-# Copy nginx config for frontend
-COPY frontend/nginx.conf /etc/nginx/sites-available/default
+# Copy nginx config for frontend (Ubuntu uses sites-enabled)
+COPY frontend/nginx.conf /etc/nginx/sites-available/netboot
+RUN rm -f /etc/nginx/sites-enabled/default && \
+    ln -sf /etc/nginx/sites-available/netboot /etc/nginx/sites-enabled/netboot
 
 # Copy FastAPI backend
 COPY backend /app/backend/
