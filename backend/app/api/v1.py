@@ -14,6 +14,18 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+def _env(name: str, default: str) -> str:
+    """Get env var, also checking for names with trailing whitespace (Unraid quirk)."""
+    val = os.getenv(name)
+    if val is not None:
+        return val.strip()
+    val = os.getenv(name + " ")
+    if val is not None:
+        return val.strip()
+    return default
+
+
 router = APIRouter(prefix="/api/v1", tags=["v1"])
 
 
@@ -38,8 +50,8 @@ def get_db() -> Database:
 
 def get_file_service() -> FileService:
     return FileService(
-        os_installers_path=os.getenv("OS_INSTALLERS_PATH", "/data/os-installers"),
-        images_path=os.getenv("IMAGES_PATH", "/data/images")
+        os_installers_path=_env("OS_INSTALLERS_PATH", "/data/os-installers"),
+        images_path=_env("IMAGES_PATH", "/data/images")
     )
 
 
@@ -492,7 +504,7 @@ async def register_boot_device(mac: str, db: Database = Depends(get_db)):
 
 def _resolve_installer_path(file_path: str) -> Path:
     """Resolve and validate an OS installer file path."""
-    base = Path(os.getenv("OS_INSTALLERS_PATH", "/data/os-installers"))
+    base = Path(_env("OS_INSTALLERS_PATH", "/data/os-installers"))
     full_path = base / file_path
     if not full_path.resolve().is_relative_to(base.resolve()):
         raise HTTPException(status_code=403, detail="Access denied")

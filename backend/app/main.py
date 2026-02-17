@@ -17,7 +17,8 @@ async def lifespan(app: FastAPI):
     # Restore iSCSI targets on start
     try:
         from .services.image_service import IscsiService
-        iscsi = IscsiService(images_path=os.getenv("IMAGES_PATH", "/iscsi-images"))
+        _images_path = (os.getenv("IMAGES_PATH") or os.getenv("IMAGES_PATH ") or "/iscsi-images").strip()
+        iscsi = IscsiService(images_path=_images_path)
         iscsi.restore_targets()
         logger.info("iSCSI targets restored")
     except Exception as e:

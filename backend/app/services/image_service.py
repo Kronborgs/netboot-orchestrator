@@ -15,7 +15,8 @@ class IscsiService:
     def __init__(self, images_path: str = "/iscsi-images"):
         self.images_path = Path(images_path)
         self.images_path.mkdir(parents=True, exist_ok=True)
-        self.boot_server_ip = os.getenv("BOOT_SERVER_IP", "192.168.1.50")
+        # Handle trailing spaces in env var names (Unraid quirk)
+        self.boot_server_ip = (os.getenv("BOOT_SERVER_IP") or os.getenv("BOOT_SERVER_IP ") or "192.168.1.50").strip()
         self.iqn_prefix = "iqn.2024.netboot"
         self.db = Database()
 

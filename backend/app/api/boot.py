@@ -29,6 +29,18 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+def _env(name: str, default: str) -> str:
+    """Get env var, also checking for names with trailing whitespace (Unraid quirk)."""
+    val = os.getenv(name)
+    if val is not None:
+        return val.strip()
+    # Check for name with trailing space (common Unraid template issue)
+    val = os.getenv(name + " ")
+    if val is not None:
+        return val.strip()
+    return default
+
 router = APIRouter(prefix="/api/v1/boot", tags=["boot"])
 
 BRANDING = "Netboot Orchestrator is designed by Kenneth Kronborg AI Team"
@@ -57,13 +69,13 @@ def get_db() -> Database:
 
 def get_file_service() -> FileService:
     return FileService(
-        os_installers_path=os.getenv("OS_INSTALLERS_PATH", "/data/os-installers"),
-        images_path=os.getenv("IMAGES_PATH", "/data/images"),
+        os_installers_path=_env("OS_INSTALLERS_PATH", "/data/os-installers"),
+        images_path=_env("IMAGES_PATH", "/data/images"),
     )
 
 
 def get_iscsi_service() -> IscsiService:
-    return IscsiService(images_path=os.getenv("IMAGES_PATH", "/iscsi-images"))
+    return IscsiService(images_path=_env("IMAGES_PATH", "/iscsi-images"))
 
 
 def get_version() -> str:
@@ -74,7 +86,7 @@ def get_version() -> str:
 
 
 def _menu_base_url() -> str:
-    ip = os.getenv("BOOT_SERVER_IP", "192.168.1.50")
+    ip = _env("BOOT_SERVER_IP", "192.168.1.50")
     return f"http://{ip}:8000/api/v1/boot"
 
 
@@ -172,7 +184,7 @@ async def boot_ipxe_os_menu(
     """OS installer submenu with folder-structure navigation."""
     version = get_version()
     base = _menu_base_url()
-    boot_ip = os.getenv("BOOT_SERVER_IP", "192.168.1.50")
+    boot_ip = _env("BOOT_SERVER_IP", "192.168.1.50")
 
     db.add_boot_log("unknown", "os_menu", f"Browsing: /{path}")
 
@@ -529,7 +541,7 @@ async def boot_ipxe_iscsi_boot(mac: str = Query(""), db: Database = Depends(get_
     """Boot device from its linked iSCSI image."""
     base = _menu_base_url()
     iscsi = get_iscsi_service()
-    boot_ip = os.getenv("BOOT_SERVER_IP", "192.168.1.50")
+    boot_ip = _env("BOOT_SERVER_IP", "192.168.1.50")
 
     # Find image for this device
     images = iscsi.list_images()
