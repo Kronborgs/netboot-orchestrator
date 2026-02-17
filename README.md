@@ -4,8 +4,9 @@
 >
 > Production-ready web orchestrator for SD-card-less network boot, disk image management, and automatic device provisioning
 
-[![GitHub Release](https://img.shields.io/badge/Release-2026--02--14--V1-blue?style=flat-square)](https://github.com/Kronborgs/netboot-orchestrator/releases)
-[![Docker](https://img.shields.io/badge/Docker%20Compose-Ready-2496ED?style=flat-square&logo=docker)](https://www.docker.com/)
+[![GitHub Release](https://img.shields.io/badge/Release-2026--02--16--V3-blue?style=flat-square)](https://github.com/Kronborgs/netboot-orchestrator/releases)
+[![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker)](https://ghcr.io/kronborgs/netboot-orchestrator)
+[![Unraid](https://img.shields.io/badge/Unraid-Template-F15A2C?style=flat-square)](unraid-template.xml)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python)](https://www.python.org/)
 [![React](https://img.shields.io/badge/React-18%2B-61DAFB?style=flat-square&logo=react)](https://react.dev/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
@@ -42,26 +43,46 @@
 ## 🚀 Quick Start (5 Minutes)
 
 ### Prerequisites
-- Docker & Docker Compose
-- 4GB RAM minimum
-- 50GB free storage
+- Docker (Unraid, Linux, or Docker Compose)
+- Host network access (required for DHCP/TFTP)
+- Primary DHCP server on the network (e.g., Unifi router)
+- 4GB RAM minimum, 50GB free storage
 
-### Installation
+### Option A: Unraid (Recommended)
+
+1. In Unraid Docker tab, click **Add Container**
+2. Set **Repository** to `ghcr.io/kronborgs/netboot-orchestrator:latest`
+3. Set **Network Type** to `host` and enable **Privileged** mode
+4. Add environment variables: `BOOT_SERVER_IP` (your Unraid IP), `DHCP_SUBNETS` (comma-separated subnets)
+5. Add volume mounts: `/data`, `/isos` (read-only), `/iscsi-images`
+6. Click **Apply**
+
+> **Tip:** An Unraid XML template is included at [`unraid-template.xml`](unraid-template.xml) with all variables pre-configured.
+
+### Option B: Docker Compose
 
 ```bash
 # 1. Clone repository
 git clone https://github.com/Kronborgs/netboot-orchestrator.git
 cd netboot-orchestrator
 
-# 2. Run setup (creates /data directories and .env)
-bash setup.sh                    # Linux/Mac
-.\setup.ps1                      # Windows (PowerShell)
+# 2. Edit docker-compose.yml with your BOOT_SERVER_IP and DHCP_SUBNETS
 
-# 3. Start all services
+# 3. Start the container
 docker-compose up -d
+```
 
-# 4. Verify services are running
-docker-compose ps
+### Option C: Docker Pull (Any Linux Host)
+
+```bash
+docker pull ghcr.io/kronborgs/netboot-orchestrator:latest
+docker run -d --name netboot --network host --privileged \
+  -e BOOT_SERVER_IP=192.168.1.50 \
+  -e DHCP_SUBNETS=192.168.1.0,10.10.50.0 \
+  -v /path/to/data:/data \
+  -v /path/to/isos:/isos:ro \
+  -v /path/to/iscsi-images:/iscsi-images \
+  ghcr.io/kronborgs/netboot-orchestrator:latest
 ```
 
 ### Access the Console
@@ -85,46 +106,36 @@ docker-compose ps
      ┌───────────────┴────────────────────┬──────────┐
      │                                    │          │
      ▼                                    ▼          ▼
-  TFTP                               HTTP Server  iSCSI Target
-(UDP 69)                            (Port 8080)   (Port 3260)
+  TFTP                               HTTP/API    iSCSI Target
+(UDP 69)                            (Port 8000)  (Port 3260)
      │                                   │           │
      └───────────────┬────────────────────┴───────────┘
                      │
         ┌────────────▼─────────────────────────┐
-        │  netboot-backend Container           │
-        │  (Host Network Mode)                 │
+        │  netboot-orchestrator (Single Container) │
+        │  (Host Network, Privileged)           │
         ├─────────────────────────────────────┤
-        │ • FastAPI REST API (Port 8000)      │
-        │ • dnsmasq TFTP/DHCP (UDP 67/69)     │
-        │ • nginx HTTP Server (Port 8080)     │
-        │ • tgtd iSCSI Target (Port 3260)     │
-        │ • Entrypoint Script (Service Mgmt)  │
-        └────────────┬─────────────────────────┘
-                     │
-        ┌────────────▼─────────────────────────┐
-        │  netboot-frontend Container          │
-        │  (Host Network Mode)                 │
-        ├─────────────────────────────────────┤
-        │ • React Web Dashboard (Port 30000)  │
-        │ • Device Management UI               │
-        │ • Image File Browser                 │
-        │ • Boot Configuration                 │
+        │ • dnsmasq    — Proxy DHCP + TFTP    │
+        │ • FastAPI    — REST API (Port 8000)  │
+        │ • tgtd       — iSCSI (Port 3260)    │
+        │ • nginx      — WebUI (Port 30000)   │
+        │ • React SPA  — Dashboard + Inventory │
         └──────────────────────────────────────┘
 ```
 
 ### Architecture Highlights
 
-**Consolidated Backend (Single Container)**
-- All services run in one Docker container on host network mode
-- Direct access to physical network interfaces (no bridge isolation)
-- Shared data volume for TFTP files, images, configurations
-- Bash entrypoint script manages service startup (replaced supervisor)
+**All-in-One Container**
+- All services (dnsmasq, FastAPI, tgtd, nginx) in a single Docker image
+- Pre-built and published to `ghcr.io/kronborgs/netboot-orchestrator:latest`
+- Custom iPXE binary compiled at build time with embedded boot script
+- CI/CD via GitHub Actions — auto-builds on push to `main`
 
 **Host Network Mode**
-- Containers bypass Docker's network layer
+- Container bypasses Docker's network layer
 - Services listen directly on host network interfaces
-- Solves DHCP/TFTP cross-VLAN issues
-- Perfect for SDN/multi-VLAN infrastructure
+- Required for DHCP/TFTP/iSCSI raw network access
+- Configurable subnets via `DHCP_SUBNETS` env var
 
 **Data Flow**
 1. Device boots → Sends PXE DHCP request
@@ -144,6 +155,8 @@ docker-compose ps
 | **[💾 DATA_STRUCTURE.md](docs/DATA_STRUCTURE.md)** | Data models, JSON schema, storage |
 | **[🚢 DEPLOYMENT.md](docs/DEPLOYMENT.md)** | Production setup, HA, monitoring, security |
 | **[🐧 UNRAID.md](docs/UNRAID.md)** | Unraid server integration guide |
+| **[📋 unraid-template.xml](unraid-template.xml)** | Unraid Docker template (one-click install) |
+| **[📖 PROJECT_GUIDE.md](PROJECT_GUIDE.md)** | Full technical guide for developers/AI handoff |
 
 ## 💻 API Quick Reference
 
@@ -217,21 +230,24 @@ curl http://localhost:8000/api/v1/devices/aa:bb:cc:dd:ee:ff | jq
 
 ## 🖥️ Web Dashboard
 
-### Dashboard Tab
-- ✅ Active device count
-- ✅ Total images managed
-- ✅ Available OS installers
-- ✅ Device list with status
+### Dashboard
+- Active device count with enabled/total
+- iSCSI images (total + linked count)
+- OS installer file count
+- Storage usage (GB)
+- Recent devices list (auto-refresh every 30s)
 
-### Inventory Tab
-- **Images**: Create, list, manage disk images
-- **OS Installers**: Configuration and version management
-- **Device Wizard**: Auto-register new devices
+### Inventory (5 Tabs)
+- **Devices**: CRUD for registered boot devices
+- **iSCSI Images**: Create, delete, copy, link/unlink disk images
+- **OS Installers**: File browser + upload for ISOs/IMGs
+- **Boot Logs**: Live boot event log (last 500 entries, filterable by MAC)
+- **Device Wizard**: Auto-register unknown devices on first PXE boot
 
 ### Device Management
-- Register devices (MAC-based)
-- Assign images to devices
-- Select kernel sets
+- Register devices by MAC address
+- Link iSCSI images for persistent disk boot
+- View boot history and status
 - Enable/disable devices
 
 ## � Project Structure
@@ -324,11 +340,14 @@ cp .env.example .env
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `BOOT_SERVER_IP` | *(required)* | IP of the host running the container |
+| `DHCP_SUBNETS` | *(required)* | Comma-separated subnets for proxy DHCP |
+| `OS_INSTALLERS_PATH` | `/isos` | Path to OS installer ISOs inside container |
+| `IMAGES_PATH` | `/iscsi-images` | Path for iSCSI disk images |
+| `DATA_PATH` | `/data` | Persistent data directory |
 | `API_HOST` | `0.0.0.0` | FastAPI bind address |
 | `API_PORT` | `8000` | FastAPI port |
-| `DATA_PATH` | `/data` | Persistent data directory |
-| `VITE_API_URL` | `http://localhost:8000` | Frontend API endpoint |
-| `LOG_LEVEL` | `INFO` | Python logging level |
+| `LOG_LEVEL` | `info` | Uvicorn log level |
 
 ### Data Directory Structure
 
@@ -505,18 +524,14 @@ This project is licensed under the **MIT License** - see [LICENSE](LICENSE) file
 
 ## 🗺️ Roadmap
 
-### v2.0 (Planned)
-- [ ] Persistent user authentication
-- [ ] Advanced image templating & cloning
-- [ ] Prometheus metrics & Grafana integration
-- [ ] Kubernetes deployment manifests
-- [ ] Cloud provider integration (AWS, Azure, GCP)
-
-### v3.0 (Future)
-- [ ] Web-based BIOS/firmware management
-- [ ] Advanced scheduling & auto-provisioning
-- [ ] Machine learning-based optimization
-- [ ] Multi-tenant support
+### Upcoming
+- [ ] Raspberry Pi 4/5 network boot support
+- [ ] Per-device boot profiles (assign specific OS/action per MAC)
+- [ ] WinPE/Linux preseed automated installs
+- [ ] Multi-architecture iPXE builds (ipxe.efi from source)
+- [ ] WebSocket live boot log streaming
+- [ ] Authentication for WebUI and API
+- [ ] HTTPS/TLS for boot traffic
 
 ---
 
@@ -534,6 +549,6 @@ If you find this project useful, please consider giving it a star! It helps othe
 
 **Repository**: [Kronborgs/netboot-orchestrator](https://github.com/Kronborgs/netboot-orchestrator)
 
-**Version**: 2026-02-14-V1
+**Version**: 2026-02-16-V3
 
-**Last Updated**: February 14, 2026
+**Last Updated**: February 17, 2026
