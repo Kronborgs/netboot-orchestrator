@@ -1,7 +1,7 @@
 # Netboot Orchestrator - Project Guide
 
 **Last Updated:** February 18, 2026  
-**Version:** 2026-02-16-V3  
+**Version:** 2026-02-18-V1  
 **Status:** Fully operational — PXE boot, iSCSI, WebUI, CI/CD all working  
 **Branding:** Designed by Kenneth Kronborg AI Team
 
@@ -454,9 +454,9 @@ Footer displays: version string + "Designed by Kenneth Kronborg AI Team"
 Format: `YYYY-MM-DD-VN` where N increments per build on the same day.
 
 ```
-2026-02-15-V1  ← First version
-2026-02-16-V1  ← New day, reset to V1
-2026-02-16-V3  ← Third build same day
+2026-02-16-V1  ← Previous day
+2026-02-16-V3  ← Multiple builds same day
+2026-02-18-V1  ← New day, reset to V1
 ```
 
 **Bump version:**

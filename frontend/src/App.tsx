@@ -25,7 +25,7 @@ function App() {
     fetch(apiUrl)
       .then(res => res.json())
       .then(data => setVersion(data.version || ''))
-      .catch(() => setVersion('2026-02-15-V1'));
+      .catch(() => setVersion('2026-02-18-V1'));
   }, []);
 
   return (
