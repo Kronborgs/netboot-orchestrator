@@ -434,14 +434,14 @@ item --gap --
 """
 
     if linked:
-        script += "item --gap --  ─── Currently Linked ───\n"
+        script += "item --gap --  --- Currently Linked ---\n"
         for img in linked:
-            script += f'item --gap --  ✓ {img["name"]}  [{img.get("size_gb", "?")} GB]\n'
+            script += f'item --gap --  * {img["name"]}  [{img.get("size_gb", "?")} GB]\n'
         script += f'item unlink     Unlink current image\n'
         script += "item --gap --\n"
 
     if available:
-        script += "item --gap --  ─── Available Images ───\n"
+        script += "item --gap --  --- Available Images ---\n"
         for idx, img in enumerate(available):
             label = f"link_{idx}"
             script += f'item {label}    {img["name"]}  [{img.get("size_gb", "?")} GB]\n'
@@ -614,10 +614,11 @@ async def check_in(mac: str, device_type: str, db: Database = Depends(get_db)):
         kernel_set = device.get("kernel_set", "default")
         if image_id:
             image = db.get_image(image_id)
+            images_path = _env("IMAGES_PATH", "/iscsi-images")
             return {
                 "action": "boot_image",
                 "image_id": image_id,
-                "image_path": f"/data/iscsi/images/{image_id}.img",
+                "image_path": f"{images_path}/{image_id}.img",
                 "kernel_set": kernel_set,
             }
         else:

@@ -1,6 +1,6 @@
 # Netboot Orchestrator - Project Guide
 
-**Last Updated:** February 16, 2026  
+**Last Updated:** February 18, 2026  
 **Version:** 2026-02-16-V3  
 **Status:** Fully operational — PXE boot, iSCSI, WebUI, CI/CD all working  
 **Branding:** Designed by Kenneth Kronborg AI Team
@@ -270,9 +270,10 @@ dhcp-range=10.10.50.0,proxy               # Proxy DHCP per subnet (from DHCP_SUB
 dhcp-range=192.168.1.0,proxy
 dhcp-userclass=set:ipxe,iPXE              # iPXE detection (user class)
 dhcp-match=set:ipxe,175                   # iPXE detection (option 175)
-dhcp-match=set:bios,60,PXEClient:Arch:00000   # BIOS detection
-dhcp-match=set:efi32,60,PXEClient:Arch:00002  # EFI 32-bit
-dhcp-match=set:efi64,60,PXEClient:Arch:00007  # EFI 64-bit
+dhcp-match=set:bios,93,0                       # BIOS detection
+dhcp-match=set:efi32,93,6                      # EFI 32-bit
+dhcp-match=set:efibc,93,7                      # EFI BC
+dhcp-match=set:efi64,93,9                      # EFI 64-bit
 dhcp-boot=tag:ipxe,http://IP:8000/api/v1/boot/ipxe/menu   # iPXE → HTTP menu
 dhcp-boot=tag:!ipxe,tag:bios,undionly.kpxe,,IP              # BIOS PXE → iPXE
 dhcp-boot=tag:!ipxe,tag:efi32,ipxe.efi,,IP                 # EFI 32 → iPXE EFI
@@ -308,10 +309,10 @@ The `DHCP_SUBNETS` env var is parsed at startup — each comma-separated subnet 
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/images` | List all iSCSI images (used by WebUI dashboard) |
-| POST | `/images` | Create iSCSI image (JSON body: name, size_gb) |
+| POST | `/images` | Create iSCSI image (query params: `name`, `size_gb`) |
 | DELETE | `/images/{name}` | Delete iSCSI image + tgtd target |
-| POST | `/images/{name}/copy` | Copy iSCSI image (JSON body: new_name) |
-| POST | `/images/{name}/link` | Link image to device (JSON body: mac) |
+| POST | `/images/{name}/copy` | Copy iSCSI image (query param: `dest_name`) |
+| POST | `/images/{name}/link` | Link image to device (query param: `mac`) |
 | POST | `/images/{name}/unlink` | Unlink image from device |
 
 ### REST API Endpoints (`/api/v1/...`)
@@ -336,7 +337,8 @@ The `DHCP_SUBNETS` env var is parsed at startup — each comma-separated subnet 
 | **HEAD** | `/os-installers/download/{path}` | **HEAD for iPXE sanboot** (returns Accept-Ranges + Content-Length) |
 | **GET** | `/os-installers/download/{path}` | **Serve installer with HTTP Range (206) support** |
 | GET | `/storage/info` | Storage usage info (total size in GB) |
-| GET/POST | `/unknown-devices` | List / record unknown devices |
+| GET | `/unknown-devices` | List unknown devices |
+| POST | `/unknown-devices/record` | Record unknown booting device |
 | GET/DELETE | `/unknown-devices/{mac}` | Get / remove unknown device |
 | POST | `/unknown-devices/register` | Register unknown device → create profile |
 | GET | `/kernel-sets` | List kernel sets |
@@ -356,7 +358,7 @@ The `DHCP_SUBNETS` env var is parsed at startup — each comma-separated subnet 
 ### How It Works
 - **tgtd** (Linux SCSI target daemon) runs inside the container
 - Disk images are sparse files created with `truncate` (don't consume full size until written)
-- Each image is registered as a tgtd target with IQN `iqn.2024-01.io.netboot:IMAGENAME`
+- Each image is registered as a tgtd target with IQN `iqn.2024.netboot:IMAGENAME`
 - Devices are linked to images via the JSON database
 - On container restart, `IscsiService.restore_targets()` re-registers all known images
 
@@ -379,7 +381,7 @@ The Inventory → iSCSI Images tab provides full management: create, delete, cop
 
 ### tgtd Commands Used Internally
 ```bash
-tgtadm --lld iscsi --op new --mode target --tid N --targetname iqn.2024-01.io.netboot:NAME
+tgtadm --lld iscsi --op new --mode target --tid N --targetname iqn.2024.netboot:NAME
 tgtadm --lld iscsi --op new --mode logicalunit --tid N --lun 1 --backing-store /iscsi-images/NAME.img
 tgtadm --lld iscsi --op bind --mode target --tid N -I ALL
 tgtadm --lld iscsi --op delete --mode target --tid N --force

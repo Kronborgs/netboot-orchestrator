@@ -6,6 +6,8 @@ import './styles/index.css';
 
 type Page = 'dashboard' | 'inventory' | 'setup';
 
+const LOGO_URL = 'https://raw.githubusercontent.com/Kronborgs/netboot-orchestrator/main/docs/logo.png';
+
 function App() {
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const [isDarkMode, setIsDarkMode] = useState(true);
@@ -31,7 +33,11 @@ function App() {
       <header className="header">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <div style={{ fontSize: '32px' }}>🚀</div>
+            <img
+              src={LOGO_URL}
+              alt="Netboot Orchestrator"
+              style={{ height: '40px', width: 'auto', maxWidth: '180px', objectFit: 'contain' }}
+            />
             <div>
               <h1 style={{ margin: '0 0 2px 0', fontSize: '24px' }}>Netboot Orchestrator</h1>
               <div style={{ fontSize: '12px', opacity: 0.9 }}>Network Boot Manager — Designed by Kenneth Kronborg AI Team</div>
@@ -106,7 +112,7 @@ function App() {
         color: 'var(--text-secondary)',
         fontSize: '12px'
       }}>
-        <div style={{ marginBottom: '8px' }}>🚀 Netboot Orchestrator {version && `v${version}`}</div>
+        <div style={{ marginBottom: '8px' }}>Netboot Orchestrator {version && `v${version}`}</div>
         <div style={{ marginBottom: '4px' }}>Network boot management for Raspberry Pi, x86, and x64 systems</div>
         <div style={{ opacity: 0.7 }}>Designed by Kenneth Kronborg AI Team</div>
       </footer>
