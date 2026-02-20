@@ -121,6 +121,7 @@ item os_install    OS Installers  >>
 item create_iscsi  Create iSCSI Image  >>
 item link_iscsi    Link Device to iSCSI Image  >>
 item boot_iscsi    Boot from iSCSI
+item win_install   Windows Install (WinPE + iSCSI)
 item --gap --
 item --gap --  ==== Info & Tools ====
 item shell         iPXE Shell
@@ -141,6 +142,9 @@ chain {base}/ipxe/iscsi-link?mac=${{net0/mac}} || goto main_menu
 
 :boot_iscsi
 chain {base}/ipxe/iscsi-boot?mac=${{net0/mac}} || goto main_menu
+
+:win_install
+chain {base}/ipxe/windows-install?mac=${{net0/mac}} || goto main_menu
 
 :device_info
 echo
@@ -592,6 +596,124 @@ sanboot {san_url} || goto iscsi_failed
 echo
 echo !! iSCSI boot failed!
 echo !! Check that the image has an OS installed.
+echo
+prompt Press any key to return to menu...
+chain {base}/ipxe/menu
+"""
+    return PlainTextResponse(script)
+
+
+@router.get("/ipxe/windows-install")
+async def boot_ipxe_windows_install(mac: str = Query(""), db: Database = Depends(get_db)):
+    """Boot Windows installer via WinPE/wimboot while attaching linked iSCSI disk."""
+    base = _menu_base_url()
+    iscsi = get_iscsi_service()
+    boot_ip = _env("BOOT_SERVER_IP", "192.168.1.50")
+
+    winpe_root = _env("WINDOWS_WINPE_PATH", "winpe").strip().strip("/")
+    os_installers_path = Path(_env("OS_INSTALLERS_PATH", "/data/os-installers"))
+    required_rel = [
+        f"{winpe_root}/wimboot",
+        f"{winpe_root}/boot/BCD",
+        f"{winpe_root}/boot/boot.sdi",
+        f"{winpe_root}/sources/boot.wim",
+    ]
+    missing = [rel for rel in required_rel if not (os_installers_path / rel).exists()]
+
+    if missing:
+        db.add_boot_log(mac or "unknown", "windows_install_missing", f"Missing WinPE files: {', '.join(missing)}")
+        script = f"""#!ipxe
+echo
+echo ================================================
+echo  Windows Install files not found
+echo ================================================
+echo  Expected under OS installers path:
+echo  - {required_rel[0]}
+echo  - {required_rel[1]}
+echo  - {required_rel[2]}
+echo  - {required_rel[3]}
+echo
+echo  Configure WINDOWS_WINPE_PATH if needed.
+echo
+prompt Press any key to return to menu...
+chain {base}/ipxe/menu
+"""
+        return PlainTextResponse(script)
+
+    images = iscsi.list_images()
+    device_image = None
+    for img in images:
+        if img.get("assigned_to") == mac:
+            device_image = img
+            break
+
+    if not device_image:
+        script = f"""#!ipxe
+echo
+echo ================================================
+echo  No iSCSI image linked to this device.
+echo ================================================
+echo  Link an image first, then retry Windows Install.
+echo  Device: {mac}
+echo
+prompt Press any key to return to menu...
+chain {base}/ipxe/menu
+"""
+        return PlainTextResponse(script)
+
+    target_name = device_image.get("target_name", f"{iscsi.iqn_prefix}:{device_image['id']}")
+    san_url = f"iscsi:{boot_ip}::::{target_name}"
+
+    wimboot_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[0], safe='/')}"
+    bcd_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[1], safe='/')}"
+    sdi_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[2], safe='/')}"
+    wim_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[3], safe='/')}"
+
+    installer_iso_san_url = _env("WINDOWS_INSTALLER_ISO_SAN_URL", "")
+    installer_iso_path = _env("WINDOWS_INSTALLER_ISO_PATH", "").strip().strip("/")
+    iso_hook_cmd = ""
+    iso_info_line = ""
+
+    if installer_iso_san_url:
+        iso_hook_cmd = f"sanhook --drive 0x81 {installer_iso_san_url} || goto windows_failed"
+        iso_info_line = f"echo  Installer media (0x81): {installer_iso_san_url}"
+    elif installer_iso_path:
+        installer_iso_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(installer_iso_path, safe='/')}"
+        iso_hook_cmd = f"sanhook --drive 0x81 {installer_iso_url} || goto windows_failed"
+        iso_info_line = f"echo  Installer media (0x81): {installer_iso_path}"
+
+    db.add_boot_log(mac, "windows_install", f"WinPE install boot via {target_name}")
+
+    script = f"""#!ipxe
+echo
+echo ================================================
+echo  Windows Install (WinPE + iSCSI)
+echo ================================================
+echo  Device: {mac}
+echo  System disk (0x80): {target_name}
+{iso_info_line}
+echo ================================================
+echo
+
+echo Acquiring DHCP lease...
+dhcp || goto windows_failed
+
+echo Attaching system iSCSI disk...
+sanhook --drive 0x80 {san_url} || goto windows_failed
+
+{iso_hook_cmd}
+
+echo Loading WinPE via wimboot...
+kernel {wimboot_url} || goto windows_failed
+initrd {bcd_url} BCD || goto windows_failed
+initrd {sdi_url} boot.sdi || goto windows_failed
+initrd {wim_url} boot.wim || goto windows_failed
+boot || goto windows_failed
+
+:windows_failed
+echo
+echo !! Windows installer boot failed.
+echo !! Verify WinPE files and optional ISO target/path.
 echo
 prompt Press any key to return to menu...
 chain {base}/ipxe/menu

@@ -6,6 +6,15 @@ from pathlib import Path
 from typing import List, Dict, Any
 from datetime import datetime
 
+try:
+    from watchdog.events import FileSystemEventHandler
+    from watchdog.observers import Observer
+    WATCHDOG_AVAILABLE = True
+except Exception:
+    FileSystemEventHandler = object
+    Observer = None
+    WATCHDOG_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -18,6 +27,10 @@ class FileService:
     _SYNC_THREAD = None
     _SYNC_STOP_EVENT = threading.Event()
     _CACHE_TTL_SECONDS = 15
+    _WATCHDOG_AVAILABLE = WATCHDOG_AVAILABLE
+    _WATCH_OBSERVER = None
+    _LAST_EVENT_AT: Dict[str, float] = {}
+    _WATCH_DEBOUNCE_SECONDS = 2
     
     def __init__(self, os_installers_path: str = "/data/os-installers", images_path: str = "/data/images"):
         self.os_installers_path = Path(os_installers_path)
@@ -70,20 +83,23 @@ class FileService:
 
     @classmethod
     def start_background_sync(cls, os_installers_path: str, images_path: str, interval_seconds: int = 15) -> None:
-        if cls._SYNC_THREAD and cls._SYNC_THREAD.is_alive():
-            return
-
-        cls._SYNC_STOP_EVENT.clear()
-        interval_seconds = max(5, interval_seconds)
-
         os_path = Path(os_installers_path)
         img_path = Path(images_path)
         key = f"{os_path.resolve()}::{img_path.resolve()}"
 
+        cls._SYNC_STOP_EVENT.clear()
+        interval_seconds = max(5, interval_seconds)
+
+        cls._trigger_refresh_for_key(key, os_path, img_path, force=True)
+        cls._start_filesystem_watcher(key, os_path, img_path)
+
+        if cls._SYNC_THREAD and cls._SYNC_THREAD.is_alive():
+            return
+
         def _sync_loop():
             while not cls._SYNC_STOP_EVENT.is_set():
                 try:
-                    cls._refresh_cache_for_paths(os_path, img_path, key)
+                    cls._trigger_refresh_for_key(key, os_path, img_path, force=True)
                 except Exception as e:
                     logger.warning(f"Background file cache sync failed: {e}")
                 cls._SYNC_STOP_EVENT.wait(interval_seconds)
@@ -95,6 +111,68 @@ class FileService:
     @classmethod
     def stop_background_sync(cls) -> None:
         cls._SYNC_STOP_EVENT.set()
+
+        if cls._SYNC_THREAD and cls._SYNC_THREAD.is_alive():
+            cls._SYNC_THREAD.join(timeout=2)
+        cls._SYNC_THREAD = None
+
+        if cls._WATCH_OBSERVER:
+            try:
+                cls._WATCH_OBSERVER.stop()
+                cls._WATCH_OBSERVER.join(timeout=2)
+            except Exception as e:
+                logger.warning(f"Failed to stop filesystem watcher cleanly: {e}")
+            cls._WATCH_OBSERVER = None
+
+    @classmethod
+    def _trigger_refresh_for_key(cls, key: str, os_path: Path, img_path: Path, force: bool = False) -> None:
+        now = time.time()
+        with cls._CACHE_LOCK:
+            if key in cls._REFRESHING_KEYS:
+                return
+            last_event = cls._LAST_EVENT_AT.get(key, 0)
+            if not force and (now - last_event) < cls._WATCH_DEBOUNCE_SECONDS:
+                return
+            cls._REFRESHING_KEYS.add(key)
+            cls._LAST_EVENT_AT[key] = now
+
+        def _worker():
+            try:
+                cls._refresh_cache_for_paths(os_path, img_path, key)
+            except Exception as e:
+                logger.warning(f"File cache refresh failed for {key}: {e}")
+            finally:
+                with cls._CACHE_LOCK:
+                    cls._REFRESHING_KEYS.discard(key)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    @classmethod
+    def _start_filesystem_watcher(cls, key: str, os_path: Path, img_path: Path) -> None:
+        if not cls._WATCHDOG_AVAILABLE:
+            logger.info("Filesystem watcher unavailable (watchdog not installed); using interval sync only")
+            return
+
+        if cls._WATCH_OBSERVER and cls._WATCH_OBSERVER.is_alive():
+            return
+
+        for watch_path in (os_path, img_path):
+            watch_path.mkdir(parents=True, exist_ok=True)
+
+        class _PathChangeHandler(FileSystemEventHandler):
+            def on_any_event(self, event):
+                if cls._SYNC_STOP_EVENT.is_set():
+                    return
+                cls._trigger_refresh_for_key(key, os_path, img_path)
+
+        observer = Observer()
+        handler = _PathChangeHandler()
+        observer.schedule(handler, str(os_path), recursive=True)
+        observer.schedule(handler, str(img_path), recursive=True)
+        observer.daemon = True
+        observer.start()
+        cls._WATCH_OBSERVER = observer
+        logger.info("FileService filesystem watcher started")
 
     @staticmethod
     def _scan_os_installer_files(os_installers_path: Path) -> Dict[str, Any]:

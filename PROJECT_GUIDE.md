@@ -101,7 +101,7 @@ FastAPI returns interactive iPXE menu:
     │  [2] Create iSCSI Image            │
     │  [3] Link iSCSI Image             │
     │  [4] Boot iSCSI Disk              │
-    │  [5] Unlink iSCSI Image           │
+    │  [5] Windows Install (WinPE+iSCSI) │
     │  [6] Device Info                   │
     │  [7] iPXE Shell                    │
     │  [8] Reboot                        │
@@ -111,7 +111,7 @@ FastAPI returns interactive iPXE menu:
     ├─ Create iSCSI → pick size → creates image + links to device → OS menu
     ├─ Link iSCSI → pick image → links to device
     ├─ Boot iSCSI → sanboot iscsi:IP::::IQN
-    └─ Unlink iSCSI → removes device link
+    └─ Windows Install → sanhook 0x80 iSCSI + wimboot (BCD/boot.sdi/boot.wim)
 ```
 
 ### OS Installer Boot Flow
@@ -142,6 +142,9 @@ FastAPI serves file with Range request support (206 Partial Content)
 | `OS_INSTALLERS_PATH` | No | `/isos` | Path inside container where OS installer ISOs are mounted |
 | `IMAGES_PATH` | No | `/iscsi-images` | Path inside container where iSCSI disk images are stored |
 | `DATA_PATH` | No | `/data` | Path for persistent data (JSON DB, TFTP files, boot scripts) |
+| `WINDOWS_WINPE_PATH` | No | `winpe` | Relative folder under `OS_INSTALLERS_PATH` containing `wimboot`, `boot/BCD`, `boot/boot.sdi`, `sources/boot.wim` |
+| `WINDOWS_INSTALLER_ISO_SAN_URL` | No | empty | Optional SAN URL for installer media mounted as iPXE drive `0x81` (example: `iscsi:IP::::IQN`) |
+| `WINDOWS_INSTALLER_ISO_PATH` | No | empty | Optional fallback relative file path under `OS_INSTALLERS_PATH` to mount as media on `0x81` |
 | `API_HOST` | No | `0.0.0.0` | FastAPI listen address |
 | `API_PORT` | No | `8000` | FastAPI listen port |
 | `LOG_LEVEL` | No | `info` | Uvicorn log level |
@@ -183,7 +186,7 @@ This is used in `boot.py`, `v1.py`, `image_service.py`, and `main.py`. If you ad
 | `backend/app/services/file_service.py` | OS installer file operations (browse, tree, list, upload, delete) |
 | `backend/app/services/image_service.py` | `IscsiService` class — manages tgtd targets, disk images, device links |
 | `backend/app/services/device_service.py` | Device management helpers |
-| `backend/requirements.txt` | Python deps: fastapi, uvicorn, pydantic, aiofiles, httpx, python-multipart |
+| `backend/requirements.txt` | Python deps: fastapi, uvicorn, pydantic, aiofiles, httpx, python-multipart, watchdog |
 
 ### Frontend (React + TypeScript + Vite)
 
