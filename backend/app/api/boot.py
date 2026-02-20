@@ -21,6 +21,7 @@ from typing import Optional
 from pathlib import Path
 from urllib.parse import quote
 import unicodedata
+import re
 from ..database import Database
 from ..services.file_service import FileService
 from ..services.image_service import IscsiService
@@ -61,6 +62,33 @@ def _ascii_safe(text: str) -> str:
         text = text.replace(uc, asc)
     # Strip any remaining non-ASCII
     return text.encode("ascii", errors="replace").decode("ascii")
+
+
+def _normalize_mac(mac: str) -> str:
+    if not mac:
+        return ""
+    return re.sub(r"[^0-9a-f]", "", mac.lower())
+
+
+def _find_device_image(images: list, mac: str) -> Optional[dict]:
+    normalized_mac = _normalize_mac(mac)
+    if not normalized_mac:
+        return None
+
+    for img in images:
+        assigned_to = _normalize_mac((img.get("assigned_to") or "").strip())
+        if assigned_to and assigned_to == normalized_mac:
+            return img
+
+    mac_dash = "-".join([normalized_mac[i:i+2] for i in range(0, len(normalized_mac), 2)])
+    disk_prefix = f"disk-{mac_dash}-"
+    for img in images:
+        image_id = (img.get("id") or "").lower()
+        image_name = (img.get("name") or "").lower()
+        if image_id.startswith(disk_prefix) or image_name.startswith(disk_prefix):
+            return img
+
+    return None
 
 
 def get_db() -> Database:
@@ -548,16 +576,12 @@ async def boot_ipxe_iscsi_boot(mac: str = Query(""), db: Database = Depends(get_
     boot_ip = _env("BOOT_SERVER_IP", "192.168.1.50")
 
     # Find image for this device
-    normalized_mac = (mac or "").strip().lower()
+    normalized_mac = _normalize_mac(mac)
     images = iscsi.list_images()
-    device_image = None
-    for img in images:
-        assigned_to = (img.get("assigned_to") or "").strip().lower()
-        if assigned_to == normalized_mac:
-            device_image = img
-            break
+    device_image = _find_device_image(images, mac)
 
     if not device_image:
+        logger.warning(f"No iSCSI image resolved for mac={mac} normalized={normalized_mac}")
         script = f"""#!ipxe
 echo
 echo ================================================
@@ -568,7 +592,8 @@ echo
 echo  Go to "Link Device to iSCSI Image" first,
 echo  or create a new image via "Create iSCSI Image".
 echo
-prompt Press any key to return to menu...
+echo  Returning to menu in 8 seconds...
+sleep 8
 chain {base}/ipxe/menu
 """
         return PlainTextResponse(script)
@@ -642,16 +667,12 @@ chain {base}/ipxe/menu
 """
         return PlainTextResponse(script)
 
-    normalized_mac = (mac or "").strip().lower()
+    normalized_mac = _normalize_mac(mac)
     images = iscsi.list_images()
-    device_image = None
-    for img in images:
-        assigned_to = (img.get("assigned_to") or "").strip().lower()
-        if assigned_to == normalized_mac:
-            device_image = img
-            break
+    device_image = _find_device_image(images, mac)
 
     if not device_image:
+        logger.warning(f"Windows install aborted: no iSCSI image resolved for mac={mac} normalized={normalized_mac}")
         script = f"""#!ipxe
 echo
 echo ================================================
@@ -660,7 +681,8 @@ echo ================================================
 echo  Link an image first, then retry Windows Install.
 echo  Device: {mac}
 echo
-prompt Press any key to return to menu...
+echo  Returning to menu in 8 seconds...
+sleep 8
 chain {base}/ipxe/menu
 """
         return PlainTextResponse(script)
@@ -719,7 +741,8 @@ echo
 echo !! Windows installer boot failed.
 echo !! Verify WinPE files and optional ISO target/path.
 echo
-prompt Press any key to return to menu...
+echo  Returning to menu in 10 seconds...
+sleep 10
 chain {base}/ipxe/menu
 """
     return PlainTextResponse(script)
