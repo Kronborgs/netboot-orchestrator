@@ -34,12 +34,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Read VERSION file
+      - name: Resolve build version (always unique)
         id: version
         run: |
-          VERSION=$(cat VERSION | tr -d '\n')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Version: $VERSION"
+          TODAY=$(date -u +%Y-%m-%d)
+          RAW_VERSION=$(cat VERSION 2>/dev/null | tr -d '\n' || true)
+
+          if echo "$RAW_VERSION" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}-V[0-9]+$'; then
+            SOURCE_VERSION="$RAW_VERSION"
+          else
+            SOURCE_VERSION="${TODAY}-V1"
+          fi
+
+          BUILD_VERSION="${TODAY}-V${GITHUB_RUN_NUMBER}"
+
+          echo "source_version=$SOURCE_VERSION" >> $GITHUB_OUTPUT
+          echo "build_version=$BUILD_VERSION" >> $GITHUB_OUTPUT
+          echo "Source version: $SOURCE_VERSION"
+          echo "Build version:  $BUILD_VERSION"
 
       - name: Extract metadata (tags, labels)
         id: meta
@@ -48,7 +60,8 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=branch
-            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=${{ steps.version.outputs.source_version }}
+            type=raw,value=${{ steps.version.outputs.build_version }}
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
 
@@ -58,6 +71,8 @@ jobs:
           context: .
           file: Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
+          build-args: |
+            BUILD_VERSION=${{ steps.version.outputs.build_version }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

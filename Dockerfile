@@ -41,6 +41,8 @@ RUN npm run build
 # ====================================================
 FROM ubuntu:22.04
 
+ARG BUILD_VERSION
+
 LABEL org.opencontainers.image.title="Netboot Orchestrator"
 LABEL org.opencontainers.image.description="Network boot management for x86, x64 & Raspberry Pi - PXE/iPXE/iSCSI"
 LABEL org.opencontainers.image.source="https://github.com/Kronborgs/netboot-orchestrator"
@@ -76,6 +78,7 @@ RUN rm -f /etc/nginx/sites-enabled/default && \
 # Copy FastAPI backend
 COPY backend /app/backend/
 COPY VERSION /app/VERSION
+RUN if [ -n "$BUILD_VERSION" ]; then echo "$BUILD_VERSION" > /app/VERSION; fi
 
 # Copy entrypoint
 COPY netboot/entrypoint-backend.sh /entrypoint.sh

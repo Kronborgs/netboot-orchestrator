@@ -446,9 +446,12 @@ Footer displays: version string + "Designed by Kenneth Kronborg AI Team"
 1. Checkout repo
 2. Setup Docker Buildx
 3. Login to GHCR (skipped on PRs)
-4. Read `VERSION` file for tagging
-5. Build all-in-one image from root `Dockerfile`
-6. Push to GHCR with all tags
+4. Resolve build version safely:
+    - Read `VERSION` if valid (`YYYY-MM-DD-VN`)
+    - Fallback to `YYYY-MM-DD-V1` if missing/invalid
+    - Always generate unique build version: `YYYY-MM-DD-V${GITHUB_RUN_NUMBER}`
+5. Build all-in-one image from root `Dockerfile` with `BUILD_VERSION` build-arg
+6. Push to GHCR with tags: source version + unique build version + sha + latest
 
 ### Version System
 Format: `YYYY-MM-DD-VN` where N increments per build on the same day.
@@ -470,9 +473,15 @@ Format: `YYYY-MM-DD-VN` where N increments per build on the same day.
 
 The version is:
 - Stored in `VERSION` file
+- Overridden in CI at image build time with a unique per-build value (`BUILD_VERSION`)
 - Read by FastAPI and exposed at `/api/v1/version`
 - Displayed in WebUI footer
 - Displayed in iPXE boot menu header
+
+### Build Reliability Rule (Must Not Fail)
+- Every CI build must produce a unique version tag and image version, even if `VERSION` is not manually bumped.
+- CI now enforces this by generating `YYYY-MM-DD-V${GITHUB_RUN_NUMBER}` and injecting it into `/app/VERSION` during Docker build.
+- Result: version collisions are avoided, and build/tag steps do not fail due to stale or invalid manual versioning.
 
 ---
 
