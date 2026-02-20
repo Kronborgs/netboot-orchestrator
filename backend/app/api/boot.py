@@ -649,9 +649,20 @@ async def boot_ipxe_windows_install(mac: str = Query(""), db: Database = Depends
         f"{winpe_root}/boot/boot.sdi",
         f"{winpe_root}/sources/boot.wim",
     ]
-    missing = [rel for rel in required_rel if not (os_installers_path / rel).exists()]
+    installer_iso_san_url = _env("WINDOWS_INSTALLER_ISO_SAN_URL", "").strip()
+    installer_iso_path = _env("WINDOWS_INSTALLER_ISO_PATH", "").strip().strip("/")
 
-    if missing:
+    if not installer_iso_path and not installer_iso_san_url:
+        for candidate in ["winpe-iscsi.iso", "winpe.iso", "windows/winpe-iscsi.iso"]:
+            if (os_installers_path / candidate).exists():
+                installer_iso_path = candidate
+                logger.info(f"Windows install auto-detected installer ISO: {installer_iso_path}")
+                break
+
+    missing = [rel for rel in required_rel if not (os_installers_path / rel).exists()]
+    has_iso_fallback = bool(installer_iso_san_url or installer_iso_path)
+
+    if missing and not has_iso_fallback:
         logger.warning(f"Windows install missing WinPE files for mac={mac}: {missing}")
         db.add_boot_log(mac or "unknown", "windows_install_missing", f"Missing WinPE files: {', '.join(missing)}")
         script = f"""#!ipxe
@@ -665,12 +676,17 @@ echo  - {required_rel[1]}
 echo  - {required_rel[2]}
 echo  - {required_rel[3]}
 echo
-echo  Configure WINDOWS_WINPE_PATH if needed.
+echo  Configure WINDOWS_WINPE_PATH or WINDOWS_INSTALLER_ISO_PATH.
 echo
 prompt Press any key to return to menu...
 chain {base}/ipxe/menu
 """
         return PlainTextResponse(script)
+    if missing and has_iso_fallback:
+        logger.info(
+            f"Windows install: WinPE files missing, using ISO fallback for mac={mac}; "
+            f"iso_san={'set' if installer_iso_san_url else 'unset'} iso_path={installer_iso_path}"
+        )
 
     normalized_mac = _normalize_mac(mac)
     images = iscsi.list_images()
@@ -702,14 +718,9 @@ chain {base}/ipxe/menu
     bcd_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[1], safe='/')}"
     sdi_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[2], safe='/')}"
     wim_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[3], safe='/')}"
-    logger.info(
-        f"Windows install URLs: wimboot={wimboot_url} bcd={bcd_url} sdi={sdi_url} wim={wim_url}"
-    )
-
-    installer_iso_san_url = _env("WINDOWS_INSTALLER_ISO_SAN_URL", "")
-    installer_iso_path = _env("WINDOWS_INSTALLER_ISO_PATH", "").strip().strip("/")
     iso_hook_cmd = ""
     iso_info_line = ""
+    installer_iso_url = ""
 
     if installer_iso_san_url:
         iso_hook_cmd = f"sanhook --drive 0x81 {installer_iso_san_url} || goto windows_failed"
@@ -722,6 +733,55 @@ chain {base}/ipxe/menu
         logger.info(f"Windows install optional ISO PATH configured: {installer_iso_path} => {installer_iso_url}")
     else:
         logger.info("Windows install optional ISO not configured (continuing with WinPE only)")
+
+    logger.info(
+        f"Windows install URLs: wimboot={wimboot_url} bcd={bcd_url} sdi={sdi_url} wim={wim_url}"
+    )
+
+    if missing and has_iso_fallback:
+        db.add_boot_log(mac, "windows_install_iso_fallback", f"ISO fallback install via {target_name}")
+
+        if installer_iso_san_url:
+            iso_attach_cmd = f"sanhook --drive 0x81 {installer_iso_san_url} || goto windows_failed"
+            iso_boot_cmd = "sanboot --drive 0x81 || goto windows_failed"
+            iso_display = installer_iso_san_url
+        else:
+            iso_attach_cmd = ""
+            iso_boot_cmd = f"sanboot --no-describe {installer_iso_url} || goto windows_failed"
+            iso_display = installer_iso_path
+
+        script = f"""#!ipxe
+echo
+echo ================================================
+echo  Windows Install (ISO fallback + iSCSI)
+echo ================================================
+echo  Device: {mac}
+echo  System disk (0x80): {target_name}
+echo  Installer ISO: {iso_display}
+echo ================================================
+echo
+
+echo Acquiring DHCP lease...
+dhcp || goto windows_failed
+
+echo Attaching system iSCSI disk...
+sanhook --drive 0x80 {san_url} || goto windows_failed
+
+{iso_attach_cmd}
+
+echo Booting installer ISO...
+{iso_boot_cmd}
+
+:windows_failed
+echo
+echo !! Windows installer ISO fallback failed.
+echo !! Verify ISO path/SAN URL and iSCSI target reachability.
+echo
+echo  Returning to menu in 10 seconds...
+sleep 10
+chain {base}/ipxe/menu
+"""
+        return PlainTextResponse(script)
 
     db.add_boot_log(mac, "windows_install", f"WinPE install boot via {target_name} (normalized_mac={normalized_mac})")
 
