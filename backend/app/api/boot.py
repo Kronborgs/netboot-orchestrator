@@ -653,11 +653,39 @@ async def boot_ipxe_windows_install(mac: str = Query(""), db: Database = Depends
     installer_iso_path = _env("WINDOWS_INSTALLER_ISO_PATH", "").strip().strip("/")
 
     if not installer_iso_path and not installer_iso_san_url:
-        for candidate in ["winpe-iscsi.iso", "winpe.iso", "windows/winpe-iscsi.iso"]:
+        for candidate in [
+            "winpe-iscsi.iso",
+            "winpe_iscsi.iso",
+            "winpe.iso",
+            "windows/winpe-iscsi.iso",
+            "windows/winpe_iscsi.iso",
+            "windows/WinPe_iscsi.iso",
+        ]:
             if (os_installers_path / candidate).exists():
                 installer_iso_path = candidate
-                logger.info(f"Windows install auto-detected installer ISO: {installer_iso_path}")
+                logger.info(f"Windows install auto-detected installer ISO (candidate): {installer_iso_path}")
                 break
+
+    if not installer_iso_path and not installer_iso_san_url:
+        try:
+            all_isos = [p for p in os_installers_path.rglob("*.iso") if p.is_file()]
+            preferred = None
+            fallback = None
+            for iso in all_isos:
+                rel = str(iso.relative_to(os_installers_path)).replace("\\", "/")
+                low = rel.lower()
+                if "winpe" in low and "iscsi" in low:
+                    preferred = rel
+                    break
+                if "winpe" in low and fallback is None:
+                    fallback = rel
+            installer_iso_path = preferred or fallback or ""
+            if installer_iso_path:
+                logger.info(f"Windows install auto-detected installer ISO (scan): {installer_iso_path}")
+            else:
+                logger.info("Windows install auto-detect scan found no WinPE ISO")
+        except Exception as e:
+            logger.warning(f"Windows install ISO auto-detect scan failed: {e}")
 
     missing = [rel for rel in required_rel if not (os_installers_path / rel).exists()]
     has_iso_fallback = bool(installer_iso_san_url or installer_iso_path)
