@@ -117,11 +117,23 @@ def _menu_base_url() -> str:
     ip = _env("BOOT_SERVER_IP", "192.168.1.50")
     return f"http://{ip}:8000/api/v1/boot"
 
-def _build_iscsi_urls(boot_ip: str, target_name: str) -> tuple[str, str]:
-    """Return (explicit_lun_url, legacy_url) for iPXE iSCSI operations."""
-    explicit_lun = f"iscsi:{boot_ip}:::1:{target_name}"
-    legacy = f"iscsi:{boot_ip}::::{target_name}"
-    return explicit_lun, legacy
+def _build_iscsi_urls(boot_ip: str, target_name: str) -> list[str]:
+    """Return prioritized iPXE iSCSI URL variants for maximum client compatibility."""
+    candidates = [
+        f"iscsi:{boot_ip}:::1:{target_name}",
+        f"iscsi:{boot_ip}::3260:1:{target_name}",
+        f"iscsi:{boot_ip}:tcp:3260:1:{target_name}",
+        f"iscsi:{boot_ip}:::0:{target_name}",
+        f"iscsi:{boot_ip}::3260:0:{target_name}",
+        f"iscsi:{boot_ip}::::{target_name}",
+    ]
+    unique = []
+    seen = set()
+    for url in candidates:
+        if url not in seen:
+            unique.append(url)
+            seen.add(url)
+    return unique
 
 # =====================================================================
 #  MAIN BOOT MENU
@@ -606,8 +618,13 @@ chain {base}/ipxe/menu
         return PlainTextResponse(script)
 
     target_name = device_image.get("target_name", f"{iscsi.iqn_prefix}:{device_image['id']}")
-    san_url, san_url_legacy = _build_iscsi_urls(boot_ip, target_name)
-    logger.info(f"iSCSI boot resolved: mac={mac} image_id={device_image.get('id')} target={target_name} san={san_url}")
+    san_urls = _build_iscsi_urls(boot_ip, target_name)
+    san_url = san_urls[0]
+    sanboot_cmd = " || ".join([f"sanboot {url}" for url in san_urls]) + " || goto iscsi_failed"
+    logger.info(
+        f"iSCSI boot resolved: mac={mac} image_id={device_image.get('id')} target={target_name} "
+        f"san_candidates={san_urls}"
+    )
 
     db.add_boot_log(mac, "iscsi_boot", f"Booting from {target_name} (normalized_mac={normalized_mac})")
 
@@ -625,7 +642,7 @@ echo ================================================
 echo
 
 echo Connecting to iSCSI target...
-sanboot {san_url} || sanboot {san_url_legacy} || goto iscsi_failed
+{sanboot_cmd}
 
 :iscsi_failed
 echo
@@ -744,10 +761,12 @@ chain {base}/ipxe/menu
         return PlainTextResponse(script)
 
     target_name = device_image.get("target_name", f"{iscsi.iqn_prefix}:{device_image['id']}")
-    san_url, san_url_legacy = _build_iscsi_urls(boot_ip, target_name)
+    san_urls = _build_iscsi_urls(boot_ip, target_name)
+    san_url = san_urls[0]
+    sanhook_cmd = " || ".join([f"sanhook --drive 0x80 {url}" for url in san_urls]) + " || goto windows_failed"
     logger.info(
         f"Windows install image resolved: mac={mac} image_id={device_image.get('id')} target={target_name} "
-        f"san={san_url} legacy={san_url_legacy}"
+        f"san_candidates={san_urls}"
     )
 
     wimboot_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[0], safe='/')}"
@@ -801,7 +820,7 @@ echo Acquiring DHCP lease...
 dhcp || goto windows_failed
 
 echo Attaching system iSCSI disk...
-sanhook --drive 0x80 {san_url} || sanhook --drive 0x80 {san_url_legacy} || goto windows_failed
+{sanhook_cmd}
 
 {iso_attach_cmd}
 
@@ -836,7 +855,7 @@ echo Acquiring DHCP lease...
 dhcp || goto windows_failed
 
 echo Attaching system iSCSI disk...
-sanhook --drive 0x80 {san_url} || sanhook --drive 0x80 {san_url_legacy} || goto windows_failed
+{sanhook_cmd}
 
 {iso_hook_cmd}
 
