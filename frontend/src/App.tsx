@@ -5,12 +5,19 @@ import { SetupGuide } from './pages/SetupGuide';
 import './styles/index.css';
 
 type Page = 'dashboard' | 'inventory' | 'setup';
+type InventoryTab = 'devices' | 'iscsi' | 'installers' | 'logs' | 'wizard';
 
 const LOGO_URL = 'https://raw.githubusercontent.com/Kronborgs/netboot-orchestrator/main/docs/logo.png';
 
 function App() {
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
+  const [inventoryTab, setInventoryTab] = useState<InventoryTab>('devices');
   const [version, setVersion] = useState<string>('');
+
+  const openInventoryTab = (tab: InventoryTab) => {
+    setInventoryTab(tab);
+    setCurrentPage('inventory');
+  };
 
   useEffect(() => {
     // Dark mode is always on (default)
@@ -74,8 +81,14 @@ function App() {
         </header>
 
         <main className="main-content">
-          {currentPage === 'dashboard' && <Dashboard />}
-          {currentPage === 'inventory' && <Inventory />}
+          {currentPage === 'dashboard' && (
+            <Dashboard
+              onOpenDevices={() => openInventoryTab('devices')}
+              onOpenIscsi={() => openInventoryTab('iscsi')}
+              onOpenInstallers={() => openInventoryTab('installers')}
+            />
+          )}
+          {currentPage === 'inventory' && <Inventory initialTab={inventoryTab} />}
           {currentPage === 'setup' && <SetupGuide />}
         </main>
 

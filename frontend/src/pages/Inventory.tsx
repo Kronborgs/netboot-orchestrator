@@ -6,8 +6,18 @@ import { UnknownDeviceWizard } from '../components/UnknownDeviceWizard';
 import { DeviceList } from '../components/DeviceList';
 import { BootLogs } from '../components/BootLogs';
 
-export const Inventory: React.FC = () => {
-  const [activeTab, setActiveTab] = React.useState<'devices' | 'iscsi' | 'installers' | 'logs' | 'wizard'>('devices');
+type InventoryTab = 'devices' | 'iscsi' | 'installers' | 'logs' | 'wizard';
+
+interface InventoryProps {
+  initialTab?: InventoryTab;
+}
+
+export const Inventory: React.FC<InventoryProps> = ({ initialTab = 'devices' }) => {
+  const [activeTab, setActiveTab] = React.useState<InventoryTab>(initialTab);
+
+  React.useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
 
   return (
     <div className="inventory">
