@@ -578,10 +578,12 @@ async def boot_ipxe_iscsi_boot(mac: str = Query(""), db: Database = Depends(get_
     # Find image for this device
     normalized_mac = _normalize_mac(mac)
     images = iscsi.list_images()
+    logger.info(f"iSCSI boot requested: mac={mac} normalized={normalized_mac} images_found={len(images)}")
     device_image = _find_device_image(images, mac)
 
     if not device_image:
-        logger.warning(f"No iSCSI image resolved for mac={mac} normalized={normalized_mac}")
+        sample = [f"{img.get('id')}=>{img.get('assigned_to')}" for img in images[:10]]
+        logger.warning(f"No iSCSI image resolved for mac={mac} normalized={normalized_mac}; sample_assignments={sample}")
         script = f"""#!ipxe
 echo
 echo ================================================
@@ -600,6 +602,7 @@ chain {base}/ipxe/menu
 
     target_name = device_image.get("target_name", f"{iscsi.iqn_prefix}:{device_image['id']}")
     san_url = f"iscsi:{boot_ip}::::{target_name}"
+    logger.info(f"iSCSI boot resolved: mac={mac} image_id={device_image.get('id')} target={target_name} san={san_url}")
 
     db.add_boot_log(mac, "iscsi_boot", f"Booting from {target_name} (normalized_mac={normalized_mac})")
 
@@ -639,6 +642,7 @@ async def boot_ipxe_windows_install(mac: str = Query(""), db: Database = Depends
 
     winpe_root = _env("WINDOWS_WINPE_PATH", "winpe").strip().strip("/")
     os_installers_path = Path(_env("OS_INSTALLERS_PATH", "/data/os-installers"))
+    logger.info(f"Windows install requested: mac={mac} boot_ip={boot_ip} winpe_root={winpe_root} os_installers_path={os_installers_path}")
     required_rel = [
         f"{winpe_root}/wimboot",
         f"{winpe_root}/boot/BCD",
@@ -648,6 +652,7 @@ async def boot_ipxe_windows_install(mac: str = Query(""), db: Database = Depends
     missing = [rel for rel in required_rel if not (os_installers_path / rel).exists()]
 
     if missing:
+        logger.warning(f"Windows install missing WinPE files for mac={mac}: {missing}")
         db.add_boot_log(mac or "unknown", "windows_install_missing", f"Missing WinPE files: {', '.join(missing)}")
         script = f"""#!ipxe
 echo
@@ -669,10 +674,12 @@ chain {base}/ipxe/menu
 
     normalized_mac = _normalize_mac(mac)
     images = iscsi.list_images()
+    logger.info(f"Windows install image lookup: mac={mac} normalized={normalized_mac} images_found={len(images)}")
     device_image = _find_device_image(images, mac)
 
     if not device_image:
-        logger.warning(f"Windows install aborted: no iSCSI image resolved for mac={mac} normalized={normalized_mac}")
+        sample = [f"{img.get('id')}=>{img.get('assigned_to')}" for img in images[:10]]
+        logger.warning(f"Windows install aborted: no iSCSI image resolved for mac={mac} normalized={normalized_mac}; sample_assignments={sample}")
         script = f"""#!ipxe
 echo
 echo ================================================
@@ -689,11 +696,15 @@ chain {base}/ipxe/menu
 
     target_name = device_image.get("target_name", f"{iscsi.iqn_prefix}:{device_image['id']}")
     san_url = f"iscsi:{boot_ip}::::{target_name}"
+    logger.info(f"Windows install image resolved: mac={mac} image_id={device_image.get('id')} target={target_name} san={san_url}")
 
     wimboot_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[0], safe='/')}"
     bcd_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[1], safe='/')}"
     sdi_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[2], safe='/')}"
     wim_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[3], safe='/')}"
+    logger.info(
+        f"Windows install URLs: wimboot={wimboot_url} bcd={bcd_url} sdi={sdi_url} wim={wim_url}"
+    )
 
     installer_iso_san_url = _env("WINDOWS_INSTALLER_ISO_SAN_URL", "")
     installer_iso_path = _env("WINDOWS_INSTALLER_ISO_PATH", "").strip().strip("/")
@@ -703,10 +714,14 @@ chain {base}/ipxe/menu
     if installer_iso_san_url:
         iso_hook_cmd = f"sanhook --drive 0x81 {installer_iso_san_url} || goto windows_failed"
         iso_info_line = f"echo  Installer media (0x81): {installer_iso_san_url}"
+        logger.info(f"Windows install optional ISO SAN configured: {installer_iso_san_url}")
     elif installer_iso_path:
         installer_iso_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(installer_iso_path, safe='/')}"
         iso_hook_cmd = f"sanhook --drive 0x81 {installer_iso_url} || goto windows_failed"
         iso_info_line = f"echo  Installer media (0x81): {installer_iso_path}"
+        logger.info(f"Windows install optional ISO PATH configured: {installer_iso_path} => {installer_iso_url}")
+    else:
+        logger.info("Windows install optional ISO not configured (continuing with WinPE only)")
 
     db.add_boot_log(mac, "windows_install", f"WinPE install boot via {target_name} (normalized_mac={normalized_mac})")
 
