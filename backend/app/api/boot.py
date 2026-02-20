@@ -166,7 +166,7 @@ item os_install    OS Installers  >>
 item create_iscsi  Create iSCSI Image  >>
 item link_iscsi    Link Device to iSCSI Image  >>
 item boot_iscsi    Boot from iSCSI
-item win_install   Windows Install (WinPE + iSCSI)
+item win_install   Windows Install (WinPE + iSCSI)  >>
 item --gap --
 item --gap --  ==== Info & Tools ====
 item shell         iPXE Shell
@@ -189,7 +189,7 @@ chain {base}/ipxe/iscsi-link?mac=${{net0/mac}} || goto main_menu
 chain {base}/ipxe/iscsi-boot?mac=${{net0/mac}} || goto main_menu
 
 :win_install
-chain {base}/ipxe/windows-install?mac=${{net0/mac}} || goto main_menu
+chain {base}/ipxe/windows-select?mac=${{net0/mac}} || goto main_menu
 
 :device_info
 echo
@@ -656,7 +656,11 @@ chain {base}/ipxe/menu
 
 
 @router.get("/ipxe/windows-install")
-async def boot_ipxe_windows_install(mac: str = Query(""), db: Database = Depends(get_db)):
+async def boot_ipxe_windows_install(
+    mac: str = Query(""),
+    installer: str = Query(""),
+    db: Database = Depends(get_db),
+):
     """Boot Windows installer via WinPE/wimboot while attaching linked iSCSI disk."""
     base = _menu_base_url()
     iscsi = get_iscsi_service()
@@ -672,7 +676,11 @@ async def boot_ipxe_windows_install(mac: str = Query(""), db: Database = Depends
         f"{winpe_root}/sources/boot.wim",
     ]
     installer_iso_san_url = _env("WINDOWS_INSTALLER_ISO_SAN_URL", "").strip()
-    installer_iso_path = _env("WINDOWS_INSTALLER_ISO_PATH", "").strip().strip("/")
+    installer_iso_path = installer.strip().strip("/") if installer else ""
+    if not installer_iso_path:
+        installer_iso_path = _env("WINDOWS_OS_INSTALLER_ISO_PATH", "").strip().strip("/")
+    if not installer_iso_path:
+        installer_iso_path = _env("WINDOWS_INSTALLER_ISO_PATH", "").strip().strip("/")
 
     if not installer_iso_path and not installer_iso_san_url:
         for candidate in [
@@ -875,6 +883,94 @@ echo  Returning to menu in 10 seconds...
 sleep 10
 chain {base}/ipxe/menu
 """
+    return PlainTextResponse(script)
+
+
+@router.get("/ipxe/windows-select")
+async def boot_ipxe_windows_select(
+    mac: str = Query(""),
+    path: str = Query(""),
+    file_service: FileService = Depends(get_file_service),
+):
+    """Select Windows installer ISO before starting WinPE + iSCSI flow."""
+    base = _menu_base_url()
+    items = file_service.get_folder_contents(path, is_images=False).get("items", [])
+
+    folders = [i for i in items if i.get("type") == "folder"]
+    files = [
+        i for i in items
+        if i.get("type") == "file"
+        and i.get("name", "").lower().endswith(".iso")
+        and "winpe" not in i.get("name", "").lower()
+    ]
+
+    breadcrumb = _ascii_safe(f"/{path}") if path else "/ (root)"
+
+    script = f"""#!ipxe
+# {BRANDING}
+
+:windows_select
+menu ========== Windows Installer Select  [ {breadcrumb} ] ==========
+item --gap --
+item --gap --  Device: {mac}
+item --gap --
+"""
+
+    if path:
+        script += "item back       << Back\n"
+
+    if folders:
+        script += "item --gap --  ---- Folders ----\n"
+        for idx, folder in enumerate(folders):
+            label = f"folder_{idx}"
+            display_name = _ascii_safe(folder.get("name", ""))
+            script += f"item {label}    [DIR] {display_name}\n"
+
+    if files:
+        script += "item --gap --  ---- Windows ISOs ----\n"
+        for idx, f in enumerate(files):
+            label = f"iso_{idx}"
+            display_name = _ascii_safe(f.get("name", "")[:52])
+            script += f"item {label}    {display_name}\n"
+    else:
+        script += "item --gap --  (No Windows installer ISO in this folder)\n"
+
+    script += """item --gap --
+item quick_winpe  Start WinPE without installer ISO
+item main_menu    << Main Menu
+item --gap --
+choose selected || goto main_menu
+goto ${selected}
+
+"""
+
+    if path:
+        parent = "/".join(path.rstrip("/").split("/")[:-1])
+        parent_encoded = quote(parent, safe='/') if parent else ""
+        query = f"?mac={quote(mac, safe='')}&path={parent_encoded}" if parent else f"?mac={quote(mac, safe='')}"
+        script += f":back\nchain {base}/ipxe/windows-select{query} || goto windows_select\n\n"
+
+    for idx, folder in enumerate(folders):
+        folder_path = quote(folder.get("path", ""), safe='/')
+        script += (
+            f":folder_{idx}\n"
+            f"chain {base}/ipxe/windows-select?mac={quote(mac, safe='')}&path={folder_path} || goto windows_select\n\n"
+        )
+
+    for idx, f in enumerate(files):
+        installer_path = quote(f.get("path", ""), safe='/')
+        script += (
+            f":iso_{idx}\n"
+            f"chain {base}/ipxe/windows-install?mac={quote(mac, safe='')}&installer={installer_path} || goto windows_select\n\n"
+        )
+
+    script += (
+        f":quick_winpe\n"
+        f"chain {base}/ipxe/windows-install?mac={quote(mac, safe='')} || goto windows_select\n\n"
+        f":main_menu\n"
+        f"chain {base}/ipxe/menu || goto windows_select\n"
+    )
+
     return PlainTextResponse(script)
 
 

@@ -1,7 +1,7 @@
 # Netboot Orchestrator - Project Guide
 
 **Last Updated:** February 20, 2026  
-**Version:** 2026-02-20-V126  
+**Version:** 2026-02-20-V127  
 **Status:** Fully operational — PXE boot, iSCSI, WebUI, CI/CD all working  
 **Branding:** Designed by Kenneth Kronborg AI Team
 
@@ -143,6 +143,7 @@ FastAPI serves file with Range request support (206 Partial Content)
 | `IMAGES_PATH` | No | `/iscsi-images` | Path inside container where iSCSI disk images are stored |
 | `DATA_PATH` | No | `/data` | Path for persistent data (JSON DB, TFTP files, boot scripts) |
 | `WINDOWS_WINPE_PATH` | No | `winpe` | Relative folder under `OS_INSTALLERS_PATH` containing `wimboot`, `boot/BCD`, `boot/boot.sdi`, `sources/boot.wim` |
+| `WINDOWS_OS_INSTALLER_ISO_PATH` | No | empty | Relative path under `OS_INSTALLERS_PATH` to a full Windows installer ISO used by WinPE flow |
 | `WINDOWS_INSTALLER_ISO_SAN_URL` | No | empty | Optional SAN URL for installer media mounted as iPXE drive `0x81` (example: `iscsi:IP::::IQN`) |
 | `WINDOWS_INSTALLER_ISO_PATH` | No | empty | Optional fallback relative file path under `OS_INSTALLERS_PATH` to mount as media on `0x81` |
 | `API_HOST` | No | `0.0.0.0` | FastAPI listen address |
