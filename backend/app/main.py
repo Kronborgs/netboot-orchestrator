@@ -14,6 +14,21 @@ BRANDING = "Netboot Orchestrator is designed by Kenneth Kronborg AI Team"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup / shutdown events."""
+    # Start file index/storage background sync for fast API responses
+    try:
+        from .services.file_service import FileService
+        _os_installers = (os.getenv("OS_INSTALLERS_PATH") or os.getenv("OS_INSTALLERS_PATH ") or "/data/os-installers").strip()
+        _images_path = (os.getenv("IMAGES_PATH") or os.getenv("IMAGES_PATH ") or "/iscsi-images").strip()
+        _sync_interval = int((os.getenv("FILE_SYNC_INTERVAL") or "15").strip())
+        FileService.start_background_sync(
+            os_installers_path=_os_installers,
+            images_path=_images_path,
+            interval_seconds=_sync_interval,
+        )
+        logger.info("FileService background sync started")
+    except Exception as e:
+        logger.warning(f"FileService background sync skipped: {e}")
+
     # Restore iSCSI targets on start
     try:
         from .services.image_service import IscsiService
@@ -23,7 +38,14 @@ async def lifespan(app: FastAPI):
         logger.info("iSCSI targets restored")
     except Exception as e:
         logger.warning(f"iSCSI target restore skipped: {e}")
-    yield
+    try:
+        yield
+    finally:
+        try:
+            from .services.file_service import FileService
+            FileService.stop_background_sync()
+        except Exception:
+            pass
 
 
 app = FastAPI(

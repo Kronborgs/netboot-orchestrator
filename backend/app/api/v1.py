@@ -249,6 +249,7 @@ async def delete_os_installer_file(
     result = file_service.delete_file(file_path, is_image=False)
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("error", "Failed to delete file"))
+    file_service.invalidate_cache()
     return result
 
 
@@ -269,6 +270,7 @@ async def upload_os_installer(
             shutil.copyfileobj(file.file, buffer)
         
         stat = file_path.stat()
+        file_service.invalidate_cache()
         return {
             "success": True,
             "filename": file.filename,
@@ -311,6 +313,7 @@ async def create_image_directory(
     result = file_service.create_image_directory(image_name)
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("error", "Failed to create directory"))
+    file_service.invalidate_cache()
     return result
 
 
@@ -333,6 +336,7 @@ async def upload_image_file(
             shutil.copyfileobj(file.file, buffer)
         
         stat = file_path.stat()
+        file_service.invalidate_cache()
         return {
             "success": True,
             "filename": file.filename,

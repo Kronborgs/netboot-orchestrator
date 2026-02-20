@@ -1,5 +1,7 @@
 import os
 import logging
+import threading
+import time
 from pathlib import Path
 from typing import List, Dict, Any
 from datetime import datetime
@@ -9,6 +11,13 @@ logger = logging.getLogger(__name__)
 
 class FileService:
     """Service for managing OS installer files and iSCSI images."""
+
+    _CACHE: Dict[str, Dict[str, Any]] = {}
+    _CACHE_LOCK = threading.Lock()
+    _REFRESHING_KEYS = set()
+    _SYNC_THREAD = None
+    _SYNC_STOP_EVENT = threading.Event()
+    _CACHE_TTL_SECONDS = 15
     
     def __init__(self, os_installers_path: str = "/data/os-installers", images_path: str = "/data/images"):
         self.os_installers_path = Path(os_installers_path)
@@ -20,6 +29,168 @@ class FileService:
         # Create directories if they don't exist
         self.os_installers_path.mkdir(parents=True, exist_ok=True)
         self.images_path.mkdir(parents=True, exist_ok=True)
+
+    def _cache_key(self) -> str:
+        return f"{self.os_installers_path.resolve()}::{self.images_path.resolve()}"
+
+    @classmethod
+    def _refresh_cache_for_paths(cls, os_installers_path: Path, images_path: Path, key: str) -> None:
+        os_data = cls._scan_os_installer_files(os_installers_path)
+        storage_data = cls._scan_storage_info(os_installers_path, images_path)
+        with cls._CACHE_LOCK:
+            cls._CACHE[key] = {
+                "os_installers": os_data,
+                "storage": storage_data,
+                "updated_at": time.time(),
+            }
+
+    def _trigger_async_refresh(self) -> None:
+        key = self._cache_key()
+        with self._CACHE_LOCK:
+            if key in self._REFRESHING_KEYS:
+                return
+            self._REFRESHING_KEYS.add(key)
+
+        def _worker():
+            try:
+                self._refresh_cache_for_paths(self.os_installers_path, self.images_path, key)
+            finally:
+                with self._CACHE_LOCK:
+                    self._REFRESHING_KEYS.discard(key)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def invalidate_cache(self) -> None:
+        key = self._cache_key()
+        with self._CACHE_LOCK:
+            self._CACHE.pop(key, None)
+
+    @classmethod
+    def start_background_sync(cls, os_installers_path: str, images_path: str, interval_seconds: int = 15) -> None:
+        if cls._SYNC_THREAD and cls._SYNC_THREAD.is_alive():
+            return
+
+        cls._SYNC_STOP_EVENT.clear()
+        interval_seconds = max(5, interval_seconds)
+
+        os_path = Path(os_installers_path)
+        img_path = Path(images_path)
+        key = f"{os_path.resolve()}::{img_path.resolve()}"
+
+        def _sync_loop():
+            while not cls._SYNC_STOP_EVENT.is_set():
+                try:
+                    cls._refresh_cache_for_paths(os_path, img_path, key)
+                except Exception as e:
+                    logger.warning(f"Background file cache sync failed: {e}")
+                cls._SYNC_STOP_EVENT.wait(interval_seconds)
+
+        cls._SYNC_THREAD = threading.Thread(target=_sync_loop, daemon=True)
+        cls._SYNC_THREAD.start()
+        logger.info(f"FileService background sync started (every {interval_seconds}s)")
+
+    @classmethod
+    def stop_background_sync(cls) -> None:
+        cls._SYNC_STOP_EVENT.set()
+
+    @staticmethod
+    def _scan_os_installer_files(os_installers_path: Path) -> Dict[str, Any]:
+        """Raw filesystem scan of bootable OS installer files."""
+        bootable_extensions = {
+            '.iso', '.img', '.bin', '.efi', '.exe',
+            '.vhd', '.vhdx', '.qcow2', '.vmdk', '.raw',
+            '.wim'
+        }
+
+        files = []
+        total_size = 0
+
+        logger.info(f"Listing bootable OS installer files from: {os_installers_path}")
+        logger.info(f"Path exists: {os_installers_path.exists()}")
+        logger.info(f"Path is directory: {os_installers_path.is_dir()}")
+
+        try:
+            if not os_installers_path.exists():
+                logger.warning(f"OS installers path does not exist: {os_installers_path}")
+                return {
+                    "path": str(os_installers_path),
+                    "files": [],
+                    "total_size_bytes": 0,
+                    "file_count": 0,
+                    "warning": f"Path does not exist: {os_installers_path}"
+                }
+
+            for file_path in os_installers_path.rglob("*"):
+                if file_path.is_file() and file_path.suffix.lower() in bootable_extensions:
+                    size = file_path.stat().st_size
+                    total_size += size
+                    files.append({
+                        "filename": file_path.name,
+                        "path": str(file_path.relative_to(os_installers_path)),
+                        "size_bytes": size,
+                        "size_display": FileService._format_bytes(size),
+                        "created_at": datetime.fromtimestamp(file_path.stat().st_ctime).isoformat(),
+                        "modified_at": datetime.fromtimestamp(file_path.stat().st_mtime).isoformat()
+                    })
+
+            logger.info(f"Found {len(files)} bootable files in {os_installers_path}")
+        except Exception as e:
+            logger.error(f"Error listing OS installer files: {str(e)}", exc_info=True)
+            return {"error": str(e), "files": [], "total_size_bytes": 0}
+
+        return {
+            "path": str(os_installers_path),
+            "files": sorted(files, key=lambda x: x["filename"]),
+            "total_size_bytes": total_size,
+            "file_count": len(files)
+        }
+
+    @staticmethod
+    def _scan_storage_info(os_installers_path: Path, images_path: Path) -> Dict[str, Any]:
+        """Raw filesystem scan for storage usage."""
+        try:
+            os_size = 0
+            images_size = 0
+
+            if os_installers_path.exists():
+                try:
+                    os_size = sum(f.stat().st_size for f in os_installers_path.rglob("*") if f.is_file())
+                except Exception as e:
+                    logger.warning(f"Failed to calculate OS installers size: {e}")
+                    os_size = 0
+
+            if images_path.exists():
+                try:
+                    images_size = sum(f.stat().st_size for f in images_path.rglob("*") if f.is_file())
+                except Exception as e:
+                    logger.warning(f"Failed to calculate images size: {e}")
+                    images_size = 0
+
+            total_size = os_size + images_size
+
+            return {
+                "os_installers": {
+                    "size_bytes": os_size,
+                    "size_gb": round(os_size / (1024**3), 2) if os_size > 0 else 0,
+                    "path": str(os_installers_path)
+                },
+                "images": {
+                    "size_bytes": images_size,
+                    "size_gb": round(images_size / (1024**3), 2) if images_size > 0 else 0,
+                    "path": str(images_path)
+                },
+                "total": {
+                    "size_bytes": total_size,
+                    "size_gb": round(total_size / (1024**3), 2) if total_size > 0 else 0
+                }
+            }
+        except Exception as e:
+            logger.error(f"Error getting storage info: {e}")
+            return {
+                "os_installers": {"size_bytes": 0, "size_gb": 0, "path": str(os_installers_path)},
+                "images": {"size_bytes": 0, "size_gb": 0, "path": str(images_path)},
+                "total": {"size_bytes": 0, "size_gb": 0}
+            }
     
     def _build_folder_tree(self, folder_path: Path, base_path: Path) -> Dict[str, Any]:
         """Recursively build folder tree structure."""
@@ -179,56 +350,22 @@ class FileService:
             }
     
     def list_os_installer_files(self) -> Dict[str, Any]:
-        """List OS installer files that are bootable (ISO, IMG, BIN, EFI, etc.)."""
-        # Only show bootable file extensions
-        bootable_extensions = {
-            '.iso', '.img', '.bin', '.efi', '.exe',
-            '.vhd', '.vhdx', '.qcow2', '.vmdk', '.raw',
-            '.wim'  # Windows Imaging Format
-        }
-        
-        files = []
-        total_size = 0
-        
-        logger.info(f"Listing bootable OS installer files from: {self.os_installers_path}")
-        logger.info(f"Path exists: {self.os_installers_path.exists()}")
-        logger.info(f"Path is directory: {self.os_installers_path.is_dir()}")
-        
-        try:
-            if not self.os_installers_path.exists():
-                logger.warning(f"OS installers path does not exist: {self.os_installers_path}")
-                return {
-                    "path": str(self.os_installers_path),
-                    "files": [],
-                    "total_size_bytes": 0,
-                    "file_count": 0,
-                    "warning": f"Path does not exist: {self.os_installers_path}"
-                }
-            
-            for file_path in self.os_installers_path.rglob("*"):
-                if file_path.is_file() and file_path.suffix.lower() in bootable_extensions:
-                    size = file_path.stat().st_size
-                    total_size += size
-                    files.append({
-                        "filename": file_path.name,
-                        "path": str(file_path.relative_to(self.os_installers_path)),
-                        "size_bytes": size,
-                        "size_display": self._format_bytes(size),
-                        "created_at": datetime.fromtimestamp(file_path.stat().st_ctime).isoformat(),
-                        "modified_at": datetime.fromtimestamp(file_path.stat().st_mtime).isoformat()
-                    })
-            
-            logger.info(f"Found {len(files)} bootable files in {self.os_installers_path}")
-        except Exception as e:
-            logger.error(f"Error listing OS installer files: {str(e)}", exc_info=True)
-            return {"error": str(e), "files": [], "total_size_bytes": 0}
-        
-        return {
-            "path": str(self.os_installers_path),
-            "files": sorted(files, key=lambda x: x["filename"]),
-            "total_size_bytes": total_size,
-            "file_count": len(files)
-        }
+        """List OS installer files quickly using cache + background sync."""
+        key = self._cache_key()
+        now = time.time()
+
+        with self._CACHE_LOCK:
+            cache_entry = self._CACHE.get(key)
+
+        if cache_entry:
+            age = now - cache_entry.get("updated_at", 0)
+            if age > self._CACHE_TTL_SECONDS:
+                self._trigger_async_refresh()
+            return cache_entry.get("os_installers", {"files": [], "file_count": 0})
+
+        self._refresh_cache_for_paths(self.os_installers_path, self.images_path, key)
+        with self._CACHE_LOCK:
+            return self._CACHE.get(key, {}).get("os_installers", {"files": [], "file_count": 0})
     
     def list_images(self) -> Dict[str, Any]:
         """List all iSCSI disk images."""
@@ -315,50 +452,19 @@ class FileService:
             return {"error": str(e), "success": False}
     
     def get_storage_info(self) -> Dict[str, Any]:
-        """Get storage usage information."""
-        try:
-            # Quick size calculation with timeout handling
-            os_size = 0
-            images_size = 0
-            
-            # Count files and estimate size (don't block on network I/O)
-            if self.os_installers_path.exists():
-                try:
-                    os_size = sum(f.stat().st_size for f in self.os_installers_path.rglob("*") if f.is_file())
-                except Exception as e:
-                    logger.warning(f"Failed to calculate OS installers size: {e}")
-                    os_size = 0
-            
-            if self.images_path.exists():
-                try:
-                    images_size = sum(f.stat().st_size for f in self.images_path.rglob("*") if f.is_file())
-                except Exception as e:
-                    logger.warning(f"Failed to calculate images size: {e}")
-                    images_size = 0
-            
-            total_size = os_size + images_size
-            
-            return {
-                "os_installers": {
-                    "size_bytes": os_size,
-                    "size_gb": round(os_size / (1024**3), 2) if os_size > 0 else 0,
-                    "path": str(self.os_installers_path)
-                },
-                "images": {
-                    "size_bytes": images_size,
-                    "size_gb": round(images_size / (1024**3), 2) if images_size > 0 else 0,
-                    "path": str(self.images_path)
-                },
-                "total": {
-                    "size_bytes": total_size,
-                    "size_gb": round(total_size / (1024**3), 2) if total_size > 0 else 0
-                }
-            }
-        except Exception as e:
-            logger.error(f"Error getting storage info: {e}")
-            # Return minimal response to avoid blocking UI
-            return {
-                "os_installers": {"size_bytes": 0, "size_gb": 0, "path": str(self.os_installers_path)},
-                "images": {"size_bytes": 0, "size_gb": 0, "path": str(self.images_path)},
-                "total": {"size_bytes": 0, "size_gb": 0}
-            }
+        """Get storage usage quickly using cache + background sync."""
+        key = self._cache_key()
+        now = time.time()
+
+        with self._CACHE_LOCK:
+            cache_entry = self._CACHE.get(key)
+
+        if cache_entry:
+            age = now - cache_entry.get("updated_at", 0)
+            if age > self._CACHE_TTL_SECONDS:
+                self._trigger_async_refresh()
+            return cache_entry.get("storage", {"total": {"size_gb": 0}})
+
+        self._refresh_cache_for_paths(self.os_installers_path, self.images_path, key)
+        with self._CACHE_LOCK:
+            return self._CACHE.get(key, {}).get("storage", {"total": {"size_gb": 0}})
