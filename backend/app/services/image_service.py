@@ -1,6 +1,7 @@
 import subprocess
 import os
 import logging
+import re
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -49,6 +50,26 @@ class IscsiService:
                     pass
         return max(tids) + 1 if tids else 1
 
+    def _get_tid_by_target_name(self, target_name: str) -> Optional[int]:
+        """Find existing TID for a target name, if present."""
+        success, stdout, _ = self._run_cmd(
+            ["tgtadm", "--lld", "iscsi", "--op", "show", "--mode", "target"]
+        )
+        if not success:
+            return None
+
+        current_tid = None
+        for line in stdout.splitlines():
+            line = line.strip()
+            if line.startswith("Target "):
+                try:
+                    current_tid = int(line.split(":")[0].replace("Target ", ""))
+                except ValueError:
+                    current_tid = None
+            elif current_tid and target_name in line:
+                return current_tid
+        return None
+
     def _register_target(self, name: str, file_path: Path) -> tuple:
         """Register a file as a tgtd iSCSI target. Returns (tid, target_name, error)."""
         tid = self._get_next_tid()
@@ -78,6 +99,66 @@ class IscsiService:
             return None, None, f"tgtadm bind failed: {err}"
 
         return tid, target_name, None
+
+    def ensure_installer_iso_target(self, installer_rel_path: str, installer_file_path: Path) -> Dict:
+        """Ensure a Windows installer ISO is exposed as an iSCSI CD target."""
+        if not installer_file_path.exists() or not installer_file_path.is_file():
+            return {"success": False, "error": f"Installer ISO not found: {installer_file_path}"}
+
+        safe_name = re.sub(r"[^a-z0-9._-]", "-", installer_rel_path.lower())
+        target_suffix = f"winiso.{safe_name}"[:180]
+        target_name = f"{self.iqn_prefix}:{target_suffix}"
+
+        existing_tid = self._get_tid_by_target_name(target_name)
+        if existing_tid:
+            return {
+                "success": True,
+                "tid": existing_tid,
+                "target_name": target_name,
+                "san_url": f"iscsi:{self.boot_server_ip}:::1:{target_name}",
+                "reused": True,
+            }
+
+        tid = self._get_next_tid()
+
+        ok, _, err = self._run_cmd([
+            "tgtadm", "--lld", "iscsi", "--op", "new",
+            "--mode", "target", "--tid", str(tid),
+            "--targetname", target_name,
+        ])
+        if not ok:
+            return {"success": False, "error": f"tgtadm new target failed: {err}"}
+
+        ok, _, err = self._run_cmd([
+            "tgtadm", "--lld", "iscsi", "--op", "new",
+            "--mode", "logicalunit", "--tid", str(tid),
+            "--lun", "1", "--backing-store", str(installer_file_path), "--device-type", "cd",
+        ])
+        if not ok:
+            self._run_cmd([
+                "tgtadm", "--lld", "iscsi", "--op", "delete",
+                "--mode", "target", "--tid", str(tid), "--force",
+            ])
+            return {"success": False, "error": f"tgtadm add installer ISO LUN failed: {err}"}
+
+        ok, _, err = self._run_cmd([
+            "tgtadm", "--lld", "iscsi", "--op", "bind",
+            "--mode", "target", "--tid", str(tid), "-I", "ALL",
+        ])
+        if not ok:
+            self._run_cmd([
+                "tgtadm", "--lld", "iscsi", "--op", "delete",
+                "--mode", "target", "--tid", str(tid), "--force",
+            ])
+            return {"success": False, "error": f"tgtadm bind installer ISO target failed: {err}"}
+
+        return {
+            "success": True,
+            "tid": tid,
+            "target_name": target_name,
+            "san_url": f"iscsi:{self.boot_server_ip}:::1:{target_name}",
+            "reused": False,
+        }
 
     # ── CRUD operations ─────────────────────────────────────
 

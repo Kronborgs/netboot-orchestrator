@@ -790,10 +790,24 @@ chain {base}/ipxe/menu
         iso_info_line = f"echo  Installer media (0x81): {installer_iso_san_url}"
         logger.info(f"Windows install optional ISO SAN configured: {installer_iso_san_url}")
     elif installer_iso_path:
-        installer_iso_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(installer_iso_path, safe='/')}"
-        iso_hook_cmd = f"sanhook --drive 0x81 {installer_iso_url} || goto windows_failed"
-        iso_info_line = f"echo  Installer media (0x81): {installer_iso_path}"
-        logger.info(f"Windows install optional ISO PATH configured: {installer_iso_path} => {installer_iso_url}")
+        installer_full_path = os_installers_path / installer_iso_path
+        ensure_iso = iscsi.ensure_installer_iso_target(installer_iso_path, installer_full_path)
+        if ensure_iso.get("success"):
+            installer_iso_san_url = ensure_iso.get("san_url", "")
+            iso_hook_cmd = f"sanhook --drive 0x81 {installer_iso_san_url} || goto windows_failed"
+            iso_info_line = f"echo  Installer media (0x81): {installer_iso_path}"
+            logger.info(
+                f"Windows install installer ISO exported as iSCSI: path={installer_iso_path} "
+                f"target={ensure_iso.get('target_name')} san={installer_iso_san_url} reused={ensure_iso.get('reused')}"
+            )
+        else:
+            installer_iso_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(installer_iso_path, safe='/')}"
+            iso_hook_cmd = f"sanhook --drive 0x81 {installer_iso_url} || goto windows_failed"
+            iso_info_line = f"echo  Installer media (0x81): {installer_iso_path}"
+            logger.warning(
+                f"Windows install failed to export installer ISO as iSCSI, falling back to HTTP sanhook: "
+                f"path={installer_iso_path} error={ensure_iso.get('error')}"
+            )
     else:
         logger.info("Windows install optional ISO not configured (continuing with WinPE only)")
 
