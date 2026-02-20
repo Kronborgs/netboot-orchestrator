@@ -64,6 +64,9 @@ class FileService:
         key = self._cache_key()
         with self._CACHE_LOCK:
             self._CACHE.pop(key, None)
+            keys_to_remove = [k for k in self._CACHE.keys() if k.startswith(f"{key}::")]
+            for k in keys_to_remove:
+                self._CACHE.pop(k, None)
 
     @classmethod
     def start_background_sync(cls, os_installers_path: str, images_path: str, interval_seconds: int = 15) -> None:
@@ -263,8 +266,14 @@ class FileService:
             }
     
     def get_folder_contents(self, folder_path: str = "", is_images: bool = False) -> Dict[str, Any]:
-        """Get contents of a specific folder (lazy loading)."""
+        """Get contents of a specific folder (lazy loading + cache)."""
         base_path = self.images_path if is_images else self.os_installers_path
+
+        cache_key = f"{self._cache_key()}::{'images' if is_images else 'os'}::folder::{folder_path}"
+        with self._CACHE_LOCK:
+            cached = self._CACHE.get(cache_key)
+        if cached:
+            return cached.get("data", {})
         
         if folder_path:
             full_path = base_path / folder_path
@@ -289,10 +298,12 @@ class FileService:
                 rel_path = str(item.relative_to(base_path))
                 
                 if item.is_dir():
-                    # For directories, only count immediate children
+                    # Fast directory metrics (non-recursive, avoids expensive rglob scans)
                     dir_size = 0
+                    has_children = False
                     try:
-                        for child in item.rglob("*"):
+                        for child in item.iterdir():
+                            has_children = True
                             if child.is_file():
                                 dir_size += child.stat().st_size
                     except PermissionError:
@@ -304,7 +315,7 @@ class FileService:
                         "path": rel_path,
                         "size_bytes": dir_size,
                         "size_display": self._format_bytes(dir_size),
-                        "has_children": len(list(item.iterdir())) > 0
+                        "has_children": has_children
                     })
                     total_size += dir_size
                 else:
@@ -332,7 +343,7 @@ class FileService:
             else:
                 breadcrumb.append({"name": "📁 Root", "path": ""})
             
-            return {
+            result = {
                 "path": folder_path,
                 "items": items,
                 "breadcrumb": breadcrumb,
@@ -340,6 +351,9 @@ class FileService:
                 "total_size_display": self._format_bytes(total_size),
                 "item_count": len(items)
             }
+            with self._CACHE_LOCK:
+                self._CACHE[cache_key] = {"data": result, "updated_at": time.time()}
+            return result
         except Exception as e:
             logger.error(f"Error getting folder contents: {e}")
             return {
