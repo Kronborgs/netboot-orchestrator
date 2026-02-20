@@ -117,6 +117,11 @@ def _menu_base_url() -> str:
     ip = _env("BOOT_SERVER_IP", "192.168.1.50")
     return f"http://{ip}:8000/api/v1/boot"
 
+def _build_iscsi_urls(boot_ip: str, target_name: str) -> tuple[str, str]:
+    """Return (explicit_lun_url, legacy_url) for iPXE iSCSI operations."""
+    explicit_lun = f"iscsi:{boot_ip}:::1:{target_name}"
+    legacy = f"iscsi:{boot_ip}::::{target_name}"
+    return explicit_lun, legacy
 
 # =====================================================================
 #  MAIN BOOT MENU
@@ -601,7 +606,7 @@ chain {base}/ipxe/menu
         return PlainTextResponse(script)
 
     target_name = device_image.get("target_name", f"{iscsi.iqn_prefix}:{device_image['id']}")
-    san_url = f"iscsi:{boot_ip}::::{target_name}"
+    san_url, san_url_legacy = _build_iscsi_urls(boot_ip, target_name)
     logger.info(f"iSCSI boot resolved: mac={mac} image_id={device_image.get('id')} target={target_name} san={san_url}")
 
     db.add_boot_log(mac, "iscsi_boot", f"Booting from {target_name} (normalized_mac={normalized_mac})")
@@ -620,7 +625,7 @@ echo ================================================
 echo
 
 echo Connecting to iSCSI target...
-sanboot {san_url} || goto iscsi_failed
+sanboot {san_url} || sanboot {san_url_legacy} || goto iscsi_failed
 
 :iscsi_failed
 echo
@@ -689,7 +694,7 @@ async def boot_ipxe_windows_install(mac: str = Query(""), db: Database = Depends
 
     missing = [rel for rel in required_rel if not (os_installers_path / rel).exists()]
     has_iso_fallback = bool(installer_iso_san_url or installer_iso_path)
-
+sanhook --drive 0x80 {san_url} || sanhook --drive 0x80 {san_url_legacy} || goto windows_failed
     if missing and not has_iso_fallback:
         logger.warning(f"Windows install missing WinPE files for mac={mac}: {missing}")
         db.add_boot_log(mac or "unknown", "windows_install_missing", f"Missing WinPE files: {', '.join(missing)}")
@@ -739,8 +744,11 @@ chain {base}/ipxe/menu
         return PlainTextResponse(script)
 
     target_name = device_image.get("target_name", f"{iscsi.iqn_prefix}:{device_image['id']}")
-    san_url = f"iscsi:{boot_ip}::::{target_name}"
-    logger.info(f"Windows install image resolved: mac={mac} image_id={device_image.get('id')} target={target_name} san={san_url}")
+    san_url, san_url_legacy = _build_iscsi_urls(boot_ip, target_name)
+    logger.info(
+        f"Windows install image resolved: mac={mac} image_id={device_image.get('id')} target={target_name} "
+        f"san={san_url} legacy={san_url_legacy}"
+    )
 
     wimboot_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[0], safe='/')}"
     bcd_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[1], safe='/')}"
@@ -793,7 +801,7 @@ echo Acquiring DHCP lease...
 dhcp || goto windows_failed
 
 echo Attaching system iSCSI disk...
-sanhook --drive 0x80 {san_url} || goto windows_failed
+sanhook --drive 0x80 {san_url} || sanhook --drive 0x80 {san_url_legacy} || goto windows_failed
 
 {iso_attach_cmd}
 
@@ -828,7 +836,7 @@ echo Acquiring DHCP lease...
 dhcp || goto windows_failed
 
 echo Attaching system iSCSI disk...
-sanhook --drive 0x80 {san_url} || goto windows_failed
+sanhook --drive 0x80 {san_url} || sanhook --drive 0x80 {san_url_legacy} || goto windows_failed
 
 {iso_hook_cmd}
 
