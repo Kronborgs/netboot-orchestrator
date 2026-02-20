@@ -548,10 +548,12 @@ async def boot_ipxe_iscsi_boot(mac: str = Query(""), db: Database = Depends(get_
     boot_ip = _env("BOOT_SERVER_IP", "192.168.1.50")
 
     # Find image for this device
+    normalized_mac = (mac or "").strip().lower()
     images = iscsi.list_images()
     device_image = None
     for img in images:
-        if img.get("assigned_to") == mac:
+        assigned_to = (img.get("assigned_to") or "").strip().lower()
+        if assigned_to == normalized_mac:
             device_image = img
             break
 
@@ -574,7 +576,7 @@ chain {base}/ipxe/menu
     target_name = device_image.get("target_name", f"{iscsi.iqn_prefix}:{device_image['id']}")
     san_url = f"iscsi:{boot_ip}::::{target_name}"
 
-    db.add_boot_log(mac, "iscsi_boot", f"Booting from {target_name}")
+    db.add_boot_log(mac, "iscsi_boot", f"Booting from {target_name} (normalized_mac={normalized_mac})")
 
     script = f"""#!ipxe
 echo
@@ -640,10 +642,12 @@ chain {base}/ipxe/menu
 """
         return PlainTextResponse(script)
 
+    normalized_mac = (mac or "").strip().lower()
     images = iscsi.list_images()
     device_image = None
     for img in images:
-        if img.get("assigned_to") == mac:
+        assigned_to = (img.get("assigned_to") or "").strip().lower()
+        if assigned_to == normalized_mac:
             device_image = img
             break
 
@@ -682,7 +686,7 @@ chain {base}/ipxe/menu
         iso_hook_cmd = f"sanhook --drive 0x81 {installer_iso_url} || goto windows_failed"
         iso_info_line = f"echo  Installer media (0x81): {installer_iso_path}"
 
-    db.add_boot_log(mac, "windows_install", f"WinPE install boot via {target_name}")
+    db.add_boot_log(mac, "windows_install", f"WinPE install boot via {target_name} (normalized_mac={normalized_mac})")
 
     script = f"""#!ipxe
 echo
