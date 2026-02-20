@@ -784,10 +784,14 @@ chain {base}/ipxe/menu
     iso_hook_cmd = ""
     iso_info_line = ""
     installer_iso_url = ""
+    installer_log_value = installer_iso_path or installer_iso_san_url or "none"
+    installer_mode = "none"
 
     if installer_iso_san_url:
         iso_hook_cmd = f"sanhook --drive 0x81 {installer_iso_san_url} || goto windows_failed"
         iso_info_line = f"echo  Installer media (0x81): {installer_iso_san_url}"
+        installer_log_value = installer_iso_san_url
+        installer_mode = "san_url"
         logger.info(f"Windows install optional ISO SAN configured: {installer_iso_san_url}")
     elif installer_iso_path:
         installer_full_path = os_installers_path / installer_iso_path
@@ -796,6 +800,8 @@ chain {base}/ipxe/menu
             installer_iso_san_url = ensure_iso.get("san_url", "")
             iso_hook_cmd = f"sanhook --drive 0x81 {installer_iso_san_url} || goto windows_failed"
             iso_info_line = f"echo  Installer media (0x81): {installer_iso_path}"
+            installer_log_value = installer_iso_path
+            installer_mode = "iscsi_export"
             logger.info(
                 f"Windows install installer ISO exported as iSCSI: path={installer_iso_path} "
                 f"target={ensure_iso.get('target_name')} san={installer_iso_san_url} reused={ensure_iso.get('reused')}"
@@ -804,6 +810,8 @@ chain {base}/ipxe/menu
             installer_iso_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(installer_iso_path, safe='/')}"
             iso_hook_cmd = f"sanhook --drive 0x81 {installer_iso_url} || goto windows_failed"
             iso_info_line = f"echo  Installer media (0x81): {installer_iso_path}"
+            installer_log_value = installer_iso_path
+            installer_mode = "http_fallback"
             logger.warning(
                 f"Windows install failed to export installer ISO as iSCSI, falling back to HTTP sanhook: "
                 f"path={installer_iso_path} error={ensure_iso.get('error')}"
@@ -816,7 +824,11 @@ chain {base}/ipxe/menu
     )
 
     if missing and has_iso_fallback:
-        db.add_boot_log(mac, "windows_install_iso_fallback", f"ISO fallback install via {target_name}")
+        db.add_boot_log(
+            mac,
+            "windows_install_iso_fallback",
+            f"ISO fallback install via {target_name}; installer={installer_log_value}; mode={installer_mode}"
+        )
 
         if installer_iso_san_url:
             iso_attach_cmd = f"sanhook --drive 0x81 {installer_iso_san_url} || goto windows_failed"
@@ -860,7 +872,11 @@ chain {base}/ipxe/menu
 """
         return PlainTextResponse(script)
 
-    db.add_boot_log(mac, "windows_install", f"WinPE install boot via {target_name} (normalized_mac={normalized_mac})")
+    db.add_boot_log(
+        mac,
+        "windows_install",
+        f"WinPE install boot via {target_name} (normalized_mac={normalized_mac}); installer={installer_log_value}; mode={installer_mode}"
+    )
 
     script = f"""#!ipxe
 echo
