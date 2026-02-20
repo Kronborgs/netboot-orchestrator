@@ -36,13 +36,13 @@ function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="sidebar-brand">
+        <button className="sidebar-brand" onClick={() => setCurrentPage('dashboard')}>
           <img src={LOGO_URL} alt="Netboot Orchestrator" className="sidebar-logo" />
           <div className="sidebar-brand-text">
             <div className="brand-title">Netboot Orchestrator</div>
             <div className="brand-subtitle">Network Boot Manager</div>
           </div>
-        </div>
+        </button>
 
         <nav className="side-nav">
           <button
@@ -73,7 +73,7 @@ function App() {
 
       <div className="content-area">
         <header className="topbar">
-          <div className="topbar-path">{currentPage === 'dashboard' ? 'Dashboard' : currentPage === 'inventory' ? 'Inventory' : 'Setup Guide'}</div>
+          <button className="topbar-path" onClick={() => setCurrentPage('dashboard')}>Dashboard</button>
           <div className="topbar-right">
             <input className="topbar-search" placeholder="Søg her..." />
             <span className="topbar-user">Sign in</span>

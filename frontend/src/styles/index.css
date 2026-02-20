@@ -718,6 +718,12 @@ table tr:hover {
   align-items: center;
   padding: 8px 6px 12px;
   border-bottom: 1px solid rgba(96, 165, 250, 0.2);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid rgba(96, 165, 250, 0.2);
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
 }
 
 .sidebar-logo {
@@ -805,6 +811,10 @@ table tr:hover {
   color: #e2ecff;
   font-size: 14px;
   font-weight: 600;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
 }
 
 .topbar-right {
