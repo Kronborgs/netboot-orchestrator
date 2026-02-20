@@ -694,7 +694,7 @@ async def boot_ipxe_windows_install(mac: str = Query(""), db: Database = Depends
 
     missing = [rel for rel in required_rel if not (os_installers_path / rel).exists()]
     has_iso_fallback = bool(installer_iso_san_url or installer_iso_path)
-sanhook --drive 0x80 {san_url} || sanhook --drive 0x80 {san_url_legacy} || goto windows_failed
+
     if missing and not has_iso_fallback:
         logger.warning(f"Windows install missing WinPE files for mac={mac}: {missing}")
         db.add_boot_log(mac or "unknown", "windows_install_missing", f"Missing WinPE files: {', '.join(missing)}")
