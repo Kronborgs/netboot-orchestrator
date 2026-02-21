@@ -43,6 +43,46 @@ jobs:
             exit 1
           fi
 
+      - name: Enforce version/date consistency in docs and UI
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          VERSION_VALUE=$(cat VERSION | tr -d '\n')
+
+          if ! echo "$VERSION_VALUE" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}-V[0-9]+$'; then
+            echo "ERROR: VERSION format must be YYYY-MM-DD-VN"
+            exit 1
+          fi
+
+          VERSION_DATE=${VERSION_VALUE%-V*}
+          HUMAN_DATE=$(LC_ALL=C date -u -d "$VERSION_DATE" "+%B %-d, %Y")
+
+          if ! grep -Fq "**Version**: $VERSION_VALUE" README.md; then
+            echo "ERROR: README.md version marker must match VERSION"
+            exit 1
+          fi
+
+          if ! grep -Fq "**Version:** $VERSION_VALUE" PROJECT_GUIDE.md; then
+            echo "ERROR: PROJECT_GUIDE.md version marker must match VERSION"
+            exit 1
+          fi
+
+          if ! grep -Fq "setVersion('$VERSION_VALUE')" frontend/src/App.tsx; then
+            echo "ERROR: frontend/src/App.tsx fallback version must match VERSION"
+            exit 1
+          fi
+
+          if ! grep -Fq "**Last Updated**: $HUMAN_DATE" README.md; then
+            echo "ERROR: README.md Last Updated must match VERSION date"
+            exit 1
+          fi
+
+          if ! grep -Fq "**Last Updated:** $HUMAN_DATE" PROJECT_GUIDE.md; then
+            echo "ERROR: PROJECT_GUIDE.md Last Updated must match VERSION date"
+            exit 1
+          fi
+
+          echo "Version/date consistency checks passed"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
