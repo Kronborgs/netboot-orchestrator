@@ -88,6 +88,10 @@ async def winpe_startnet_cmd(
         f"http://{boot_ip}:8000/api/v1/boot/winpe/logs/upload"
         f"?mac={mac_encoded}&name=setupact.log"
     )
+    startnet_upload_url = (
+        f"http://{boot_ip}:8000/api/v1/boot/winpe/logs/upload"
+        f"?mac={mac_encoded}&name=startnet.log"
+    )
 
     iscsi_attach_block = """
 set INSTALLER_PORTAL={installer_portal}
@@ -113,8 +117,12 @@ if not "%INSTALLER_TARGET%"=="" (
 
     script = f"""@echo off
 setlocal EnableExtensions EnableDelayedExpansion
+set TRACE_FILE=X:\Windows\Temp\netboot-startnet.log
+if not exist X:\Windows\Temp mkdir X:\Windows\Temp >nul 2>&1
+echo [startnet] begin %DATE% %TIME% > %TRACE_FILE%
 wpeinit
 wpeutil InitializeNetwork >nul 2>&1
+call :trace wpeinit completed
 where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{log_url_base}WinPE%20startnet%20started' -Method Get | Out-Null }} catch {{}}" >nul 2>&1
 where curl.exe >nul 2>&1 && curl.exe -fsS "{log_url_base}WinPE%20startnet%20started" >nul 2>&1
 echo.
@@ -126,6 +134,7 @@ echo Searching for installer media (auto mode)...
 {iscsi_attach_block}
 
 if exist E:\setup.exe (
+    call :trace found setup.exe on E:\
     call :log_setup E
     call :upload_setupact
     start /wait "" E:\setup.exe /DynamicUpdate Disable
@@ -136,6 +145,7 @@ if exist E:\setup.exe (
 )
 
 if exist E:\sources\setup.exe (
+    call :trace found setup.exe on E:\sources\
     call :log_setup E
     call :upload_setupact
     start /wait "" E:\sources\setup.exe /DynamicUpdate Disable
@@ -150,6 +160,7 @@ for /L %%R in (1,1,60) do (
     for %%L in (C D E F G H I J K L M N O P Q R S T U V W X Y Z) do (
         if exist %%L:\setup.exe (
             echo Found installer on %%L:\
+            call :trace found setup.exe on %%L:\
             call :log_setup %%L
             call :upload_setupact
             start /wait "" %%L:\setup.exe /DynamicUpdate Disable
@@ -160,6 +171,7 @@ for /L %%R in (1,1,60) do (
         )
         if exist %%L:\sources\setup.exe (
             echo Found installer on %%L:\sources\
+            call :trace found setup.exe on %%L:\sources\
             call :log_setup %%L
             call :upload_setupact
             start /wait "" %%L:\sources\setup.exe /DynamicUpdate Disable
@@ -169,16 +181,19 @@ for /L %%R in (1,1,60) do (
             goto :done
         )
     )
-    timeout /t 2 >nul
+    call :sleep_short
 )
 
 echo.
 echo No installer media with setup.exe found.
+call :trace no installer media found
 call :upload_setupact
+call :upload_trace
 echo Opening command prompt for manual troubleshooting.
 cmd.exe
 
 :done
+call :upload_trace
 exit /b 0
 
 :log_setup
@@ -192,12 +207,26 @@ set PORTAL=%~1
 set TARGET=%~2
 if "%PORTAL%"=="" set PORTAL={boot_ip}
 if "%TARGET%"=="" exit /b 0
+where iscsicli.exe >nul 2>&1
+if errorlevel 1 (
+    call :trace iscsicli.exe unavailable in this WinPE
+    exit /b 0
+)
+call :trace attach iscsi target=%TARGET% portal=%PORTAL%
 iscsicli QAddTargetPortal %PORTAL% 3260 >nul 2>&1
 iscsicli AddTargetPortal %PORTAL% 3260 >nul 2>&1
 iscsicli QLoginTarget %TARGET% >nul 2>&1
 iscsicli LoginTarget %TARGET% T * * * * * * * * * * * * * * * 0 >nul 2>&1
-timeout /t 2 >nul
+call :sleep_short
 wpeutil UpdateBootInfo >nul 2>&1
+exit /b 0
+
+:sleep_short
+ping -n 3 127.0.0.1 >nul 2>&1
+exit /b 0
+
+:trace
+echo [startnet] %DATE% %TIME% - %*>> %TRACE_FILE%
 exit /b 0
 
 :log_setup_exit
@@ -212,9 +241,16 @@ for %%P in ("X:\Windows\Panther\setupact.log" "X:\$WINDOWS.~BT\Sources\Panther\s
     if exist %%~P set SETUPACT_PATH=%%~P
 )
 if not defined SETUPACT_PATH exit /b 0
+call :trace uploading setupact from %SETUPACT_PATH%
 where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{setupact_upload_url}' -Method Put -InFile $env:SETUPACT_PATH | Out-Null }} catch {{}}" >nul 2>&1
 where curl.exe >nul 2>&1 && curl.exe -fsS -X PUT --data-binary "@%SETUPACT_PATH%" "{setupact_upload_url}" >nul 2>&1
 where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{log_url_base}setupact.log%20uploaded%20from%20' + ($env:SETUPACT_PATH -replace ':','%3A' -replace '\\','%5C') -Method Get | Out-Null }} catch {{}}" >nul 2>&1
+exit /b 0
+
+:upload_trace
+if not exist %TRACE_FILE% exit /b 0
+where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{startnet_upload_url}' -Method Put -InFile $env:TRACE_FILE | Out-Null }} catch {{}}" >nul 2>&1
+where curl.exe >nul 2>&1 && curl.exe -fsS -X PUT --data-binary "@%TRACE_FILE%" "{startnet_upload_url}" >nul 2>&1
 exit /b 0
 """
     return PlainTextResponse(script)
