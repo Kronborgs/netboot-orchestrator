@@ -89,6 +89,7 @@ wpeutil UpdateBootInfo >nul 2>&1
 
     script = f"""@echo off
 wpeinit
+where curl.exe >nul 2>&1 && curl.exe -fsS "{log_url_base}WinPE%20startnet%20started" >nul 2>&1
 echo.
 echo ================================================
 echo  Netboot Orchestrator - Windows Setup Autostart
@@ -97,19 +98,19 @@ echo Searching for installer media (auto mode)...
 
 {iscsi_attach_block}
 
-for /L %%R in (1,1,20) do (
+for /L %%R in (1,1,60) do (
     wpeutil UpdateBootInfo >nul 2>&1
     for %%L in (D E F G H I J K L M N O P Q R S T U V W X Y Z) do (
         if exist %%L:\setup.exe (
             echo Found installer on %%L:\
             call :log_setup %%L
-            %%L:\setup.exe
+            start "" %%L:\setup.exe
             goto :done
         )
         if exist %%L:\sources\setup.exe (
             echo Found installer on %%L:\sources\
             call :log_setup %%L
-            %%L:\sources\setup.exe
+            start "" %%L:\sources\setup.exe
             goto :done
         )
     )
@@ -131,6 +132,16 @@ where curl.exe >nul 2>&1 && curl.exe -fsS "{log_url_base}Auto%20setup%20started%
 exit /b 0
 """
     return PlainTextResponse(script)
+
+
+@router.get("/winpe/winpeshl.ini")
+async def winpe_winpeshl_ini():
+    """Force WinPE shell flow to launch our startnet script."""
+    content = """[LaunchApps]
+%SYSTEMROOT%\\System32\\wpeinit.exe
+%SYSTEMROOT%\\System32\\cmd.exe,/c %SYSTEMROOT%\\System32\\startnet.cmd
+"""
+    return PlainTextResponse(content)
 
 
 def _ascii_safe(text: str) -> str:
@@ -884,6 +895,7 @@ chain {base}/ipxe/menu
     wim_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[3], safe='/')}"
     startnet_meta = quote(f"{mac}||", safe='')
     startnet_url = f"http://{boot_ip}:8000/api/v1/boot/winpe/startnet.cmd?meta={startnet_meta}"
+    winpeshl_url = f"http://{boot_ip}:8000/api/v1/boot/winpe/winpeshl.ini"
     iso_hook_cmd = ""
     iso_info_line = ""
     installer_iso_url = ""
@@ -1053,6 +1065,7 @@ initrd {bcd_url} BCD || goto windows_failed
 initrd {sdi_url} boot.sdi || goto windows_failed
 initrd {wim_url} boot.wim || goto windows_failed
 initrd {startnet_url} Windows/System32/startnet.cmd || goto windows_failed
+initrd {winpeshl_url} Windows/System32/winpeshl.ini || goto windows_failed
 boot || goto windows_failed
 
 :windows_failed
