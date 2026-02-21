@@ -197,6 +197,34 @@ class IscsiService:
             base_result["network"]["tx_bytes"] = int(tx_bytes)
             base_result["network"]["source"] = "target_stats"
 
+        # Fallback to active iSCSI TCP socket counters (per remote IP) when tgtd target stats
+        # do not expose byte counters. This gives practical live transfer visibility per device.
+        if base_result["connection"]["active"]:
+            socket_stats = self._get_iscsi_socket_counters()
+            total_rx = 0
+            total_tx = 0
+            matched = False
+            for remote_ip in remote_ips:
+                entry = socket_stats.get(remote_ip)
+                if not entry:
+                    continue
+                matched = True
+                total_rx += int(entry.get("rx_bytes", 0))
+                total_tx += int(entry.get("tx_bytes", 0))
+
+            if matched:
+                if base_result["network"]["source"] == "unavailable":
+                    base_result["network"]["rx_bytes"] = total_rx
+                    base_result["network"]["tx_bytes"] = total_tx
+                    base_result["network"]["source"] = "socket_counters"
+
+                # iSCSI direction mapping (server perspective):
+                # tx -> client reads from disk, rx -> client writes to disk
+                if base_result["disk_io"]["source"] == "unavailable":
+                    base_result["disk_io"]["read_bytes"] = total_tx
+                    base_result["disk_io"]["write_bytes"] = total_rx
+                    base_result["disk_io"]["source"] = "socket_counters_estimate"
+
         if base_result["network"]["source"] == "unavailable":
             base_result["warning"] = (
                 (base_result.get("warning", "") + " ").strip() +
@@ -204,6 +232,53 @@ class IscsiService:
             ).strip()
 
         return base_result
+
+    def _get_iscsi_socket_counters(self) -> Dict[str, Dict[str, int]]:
+        """Get per-remote-IP iSCSI byte counters from active TCP sockets (port 3260)."""
+        ok, stdout, _ = self._run_cmd(["ss", "-tinp"])
+        if not ok or not stdout:
+            return {}
+
+        result: Dict[str, Dict[str, int]] = {}
+        lines = stdout.splitlines()
+        for idx, line in enumerate(lines):
+            header = line.strip()
+            if not header.startswith("ESTAB"):
+                continue
+            if ":3260" not in header:
+                continue
+
+            # Prefer matching tgtd-owned sockets when process info is present.
+            if "users:(\"tgtd\"" not in header and "users:((\"tgtd\"" not in header and "users:(\"tgtd" not in header:
+                # Keep fallback behavior if process metadata is missing in output.
+                pass
+
+            parts = header.split()
+            if len(parts) < 5:
+                continue
+
+            local_ep = parts[3]
+            remote_ep = parts[4]
+            if ":3260" not in local_ep and ":3260" not in remote_ep:
+                continue
+
+            remote_ip = remote_ep.rsplit(":", 1)[0] if ":" in remote_ep else remote_ep
+            remote_ip = remote_ip.strip("[]")
+
+            details = lines[idx + 1] if idx + 1 < len(lines) else ""
+            tx_match = re.search(r"bytes_acked:(\d+)", details)
+            rx_match = re.search(r"bytes_received:(\d+)", details)
+            tx = int(tx_match.group(1)) if tx_match else 0
+            rx = int(rx_match.group(1)) if rx_match else 0
+
+            prev = result.get(remote_ip, {"tx_bytes": 0, "rx_bytes": 0})
+            # Same remote IP can appear more than once (multiple sessions); sum them.
+            result[remote_ip] = {
+                "tx_bytes": prev["tx_bytes"] + tx,
+                "rx_bytes": prev["rx_bytes"] + rx,
+            }
+
+        return result
 
     def _register_target(self, name: str, file_path: Path) -> tuple:
         """Register a file as a tgtd iSCSI target. Returns (tid, target_name, error)."""

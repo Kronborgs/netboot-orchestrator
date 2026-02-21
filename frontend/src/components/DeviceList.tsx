@@ -61,6 +61,23 @@ export const DeviceList: React.FC = () => {
     fetchDevices();
   }, []);
 
+  useEffect(() => {
+    if (!expandedMac) return;
+
+    const metricsTimer = setInterval(() => {
+      fetchDeviceDetails(expandedMac, false);
+    }, 1000);
+
+    const logsTimer = setInterval(() => {
+      fetchDeviceDetails(expandedMac, true);
+    }, 5000);
+
+    return () => {
+      clearInterval(metricsTimer);
+      clearInterval(logsTimer);
+    };
+  }, [expandedMac]);
+
   const formatBytes = (bytes?: number): string => {
     if (bytes === undefined || bytes === null || bytes < 0) return '—';
     if (bytes === 0) return '0 B';
@@ -147,6 +164,32 @@ export const DeviceList: React.FC = () => {
     }
   };
 
+  const fetchDeviceDetails = async (mac: string, includeLogs: boolean) => {
+    try {
+      const requests: Promise<Response>[] = [
+        apiFetch(`/api/v1/boot/devices/${encodeURIComponent(mac)}/metrics`)
+      ];
+      if (includeLogs) {
+        requests.push(apiFetch(`/api/v1/boot/logs?mac=${encodeURIComponent(mac)}&limit=20`));
+      }
+
+      const responses = await Promise.all(requests);
+      const metricsRes = responses[0];
+
+      if (metricsRes.ok) {
+        const data = await metricsRes.json();
+        setMetricsByMac(prev => ({ ...prev, [mac]: data }));
+      }
+
+      if (includeLogs && responses[1] && responses[1].ok) {
+        const logsData = await responses[1].json();
+        setLogsByMac(prev => ({ ...prev, [mac]: logsData || [] }));
+      }
+    } catch (err) {
+      console.error('Failed to fetch device details', err);
+    }
+  };
+
   const toggleDetails = async (mac: string) => {
     if (expandedMac === mac) {
       setExpandedMac(null);
@@ -160,22 +203,7 @@ export const DeviceList: React.FC = () => {
 
     setDetailsLoadingByMac(prev => ({ ...prev, [mac]: true }));
     try {
-      const [metricsRes, logsRes] = await Promise.all([
-        apiFetch(`/api/v1/boot/devices/${encodeURIComponent(mac)}/metrics`),
-        apiFetch(`/api/v1/boot/logs?mac=${encodeURIComponent(mac)}&limit=20`)
-      ]);
-
-      if (metricsRes.ok) {
-        const data = await metricsRes.json();
-        setMetricsByMac(prev => ({ ...prev, [mac]: data }));
-      }
-
-      if (logsRes.ok) {
-        const data = await logsRes.json();
-        setLogsByMac(prev => ({ ...prev, [mac]: data || [] }));
-      }
-    } catch (err) {
-      console.error('Failed to fetch device details', err);
+      await fetchDeviceDetails(mac, true);
     } finally {
       setDetailsLoadingByMac(prev => ({ ...prev, [mac]: false }));
     }
