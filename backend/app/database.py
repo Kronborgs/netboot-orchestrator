@@ -279,3 +279,39 @@ class Database:
         if not isinstance(data, dict):
             return {}
         return data.get(key, {})
+
+    def reset_device_transfer(self, mac: str) -> Dict:
+        """Reset per-device transfer counters for a new boot/install session."""
+        key = self._normalize_mac(mac)
+        if not key:
+            return {}
+
+        data = self._read_json(self.device_transfer_file)
+        if not isinstance(data, dict):
+            data = {}
+
+        existing = data.get(key, {
+            "mac": key,
+            "http_tx_bytes": 0,
+            "http_requests": 0,
+            "iscsi_tx_bytes": 0,
+            "iscsi_requests": 0,
+            "last_path": "",
+            "last_remote_ip": "",
+            "last_protocol": "",
+            "first_seen": self._now_iso(),
+            "last_seen": self._now_iso(),
+        })
+
+        existing["http_tx_bytes"] = 0
+        existing["http_requests"] = 0
+        existing["iscsi_tx_bytes"] = 0
+        existing["iscsi_requests"] = 0
+        existing["last_path"] = ""
+        existing["last_protocol"] = ""
+        existing["session_started_at"] = self._now_iso()
+        existing["last_seen"] = self._now_iso()
+
+        data[key] = existing
+        self._write_json(self.device_transfer_file, data)
+        return existing

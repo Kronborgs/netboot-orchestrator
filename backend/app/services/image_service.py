@@ -180,6 +180,15 @@ class IscsiService:
         base_result["connection"]["session_count"] = max(connection_count, len(remote_ips))
         base_result["connection"]["active"] = base_result["connection"]["session_count"] > 0
 
+        socket_stats = self._get_iscsi_socket_counters()
+        if not base_result["connection"]["active"] and socket_stats:
+            if len(socket_stats) == 1:
+                inferred_ip = next(iter(socket_stats.keys()))
+                base_result["connection"]["remote_ips"] = [inferred_ip]
+                base_result["connection"]["session_count"] = 1
+                base_result["connection"]["active"] = True
+                remote_ips = [inferred_ip]
+
         read_bytes = self._extract_first_int(stdout, [
             r"read[_\s-]*bytes\s*[:=]\s*(\d+)",
             r"\bread\s*[:=]\s*(\d+)\s*bytes",
@@ -216,7 +225,6 @@ class IscsiService:
         # Fallback to active iSCSI TCP socket counters (per remote IP) when tgtd target stats
         # do not expose byte counters. This gives practical live transfer visibility per device.
         if base_result["connection"]["active"]:
-            socket_stats = self._get_iscsi_socket_counters()
             total_rx = 0
             total_tx = 0
             matched = False

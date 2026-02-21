@@ -37,6 +37,7 @@ interface DeviceMetrics {
     last_path?: string;
     last_seen?: string;
     last_remote_ip?: string;
+    session_started_at?: string;
   };
   warning?: string;
 }
@@ -419,6 +420,11 @@ export const DeviceList: React.FC = () => {
                                 {!!metricsByMac[device.mac]?.boot_transfer?.last_seen && (
                                   <div style={{ marginTop: '2px', fontSize: '12px', color: 'var(--text-secondary)' }}>
                                     Last transfer: {formatTimestamp(metricsByMac[device.mac]?.boot_transfer?.last_seen)}
+                                  </div>
+                                )}
+                                {!!metricsByMac[device.mac]?.boot_transfer?.session_started_at && (
+                                  <div style={{ marginTop: '2px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                    Session started: {formatTimestamp(metricsByMac[device.mac]?.boot_transfer?.session_started_at)}
                                   </div>
                                 )}
                                 <div style={{ marginTop: '4px', fontSize: '12px', color: 'var(--text-secondary)' }}>

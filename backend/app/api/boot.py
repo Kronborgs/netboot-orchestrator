@@ -988,6 +988,9 @@ async def boot_ipxe_windows_install(
     winpe_root = _env("WINDOWS_WINPE_PATH", "winpe").strip().strip("/")
     os_installers_path = Path(_env("OS_INSTALLERS_PATH", "/data/os-installers"))
     logger.info(f"Windows install requested: mac={mac} boot_ip={boot_ip} winpe_root={winpe_root} os_installers_path={os_installers_path}")
+    if mac:
+        db.reset_device_transfer(mac)
+        db.add_boot_log(mac, "transfer_reset", "Reset HTTP/iSCSI counters for new Windows install session")
     required_rel = [
         f"{winpe_root}/wimboot",
         f"{winpe_root}/boot/BCD",
@@ -1480,6 +1483,7 @@ async def get_device_metrics(mac: str, db: Database = Depends(get_db)):
             "last_path": transfer.get("last_path", ""),
             "last_seen": transfer.get("last_seen", ""),
             "last_remote_ip": transfer.get("last_remote_ip", ""),
+            "session_started_at": transfer.get("session_started_at", ""),
         }
 
         connection = metrics.get("connection") or {}
