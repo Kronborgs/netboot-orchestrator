@@ -47,6 +47,35 @@ router = APIRouter(prefix="/api/v1/boot", tags=["boot"])
 BRANDING = "Netboot Orchestrator is designed by Kenneth Kronborg AI Team"
 
 
+@router.get("/winpe/startnet.cmd")
+async def winpe_startnet_cmd():
+        """WinPE startup script that auto-launches Windows setup from mounted installer media."""
+        script = r"""@echo off
+wpeinit
+echo.
+echo ================================================
+echo  Netboot Orchestrator - Windows Setup Autostart
+echo ================================================
+echo Searching for installer media...
+
+for %%L in (D E F G H I J K L M N O P Q R S T U V W X Y Z) do (
+    if exist %%L:\setup.exe (
+        echo Found installer on %%L:\
+        start "" %%L:\setup.exe
+        goto :done
+    )
+)
+
+echo.
+echo No installer media with setup.exe found.
+echo Opening command prompt for manual troubleshooting.
+cmd.exe
+
+:done
+"""
+        return PlainTextResponse(script)
+
+
 def _ascii_safe(text: str) -> str:
     """Convert text to ASCII-safe for iPXE display.
     Replaces Unicode quotes, dashes, etc. with ASCII equivalents."""
@@ -771,7 +800,7 @@ chain {base}/ipxe/menu
     target_name = device_image.get("target_name", f"{iscsi.iqn_prefix}:{device_image['id']}")
     san_urls = _build_iscsi_urls(boot_ip, target_name)
     san_url = san_urls[0]
-    sanhook_cmd = " || ".join([f"sanhook --drive 0x80 {url}" for url in san_urls]) + " || goto windows_failed"
+    sanhook_cmd = " || ".join([f"sanhook --drive 0x80 --keep {url}" for url in san_urls]) + " || goto windows_failed"
     logger.info(
         f"Windows install image resolved: mac={mac} image_id={device_image.get('id')} target={target_name} "
         f"san_candidates={san_urls}"
@@ -781,6 +810,7 @@ chain {base}/ipxe/menu
     bcd_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[1], safe='/')}"
     sdi_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[2], safe='/')}"
     wim_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[3], safe='/')}"
+    startnet_url = f"http://{boot_ip}:8000/api/v1/boot/winpe/startnet.cmd"
     iso_hook_cmd = ""
     iso_info_line = ""
     installer_iso_url = ""
@@ -788,8 +818,12 @@ chain {base}/ipxe/menu
     installer_mode = "none"
 
     if installer_iso_san_url:
-        iso_hook_cmd = f"sanhook --drive 0x81 {installer_iso_san_url} || goto windows_failed"
-        iso_info_line = f"echo  Installer media (0x81): {installer_iso_san_url}"
+        iso_hook_cmd = (
+            f"sanhook --drive 0xE0 --keep {installer_iso_san_url} "
+            f"|| sanhook --drive 0x81 --keep {installer_iso_san_url} "
+            f"|| goto windows_failed"
+        )
+        iso_info_line = f"echo  Installer media (0xE0/0x81): {installer_iso_san_url}"
         installer_log_value = installer_iso_san_url
         installer_mode = "san_url"
         logger.info(f"Windows install optional ISO SAN configured: {installer_iso_san_url}")
@@ -798,8 +832,12 @@ chain {base}/ipxe/menu
         ensure_iso = iscsi.ensure_installer_iso_target(installer_iso_path, installer_full_path)
         if ensure_iso.get("success"):
             installer_iso_san_url = ensure_iso.get("san_url", "")
-            iso_hook_cmd = f"sanhook --drive 0x81 {installer_iso_san_url} || goto windows_failed"
-            iso_info_line = f"echo  Installer media (0x81): {installer_iso_path}"
+            iso_hook_cmd = (
+                f"sanhook --drive 0xE0 --keep {installer_iso_san_url} "
+                f"|| sanhook --drive 0x81 --keep {installer_iso_san_url} "
+                f"|| goto windows_failed"
+            )
+            iso_info_line = f"echo  Installer media (0xE0/0x81): {installer_iso_path}"
             installer_log_value = installer_iso_path
             installer_mode = "iscsi_export"
             logger.info(
@@ -808,8 +846,12 @@ chain {base}/ipxe/menu
             )
         else:
             installer_iso_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(installer_iso_path, safe='/')}"
-            iso_hook_cmd = f"sanhook --drive 0x81 {installer_iso_url} || goto windows_failed"
-            iso_info_line = f"echo  Installer media (0x81): {installer_iso_path}"
+            iso_hook_cmd = (
+                f"sanhook --drive 0xE0 --keep {installer_iso_url} "
+                f"|| sanhook --drive 0x81 --keep {installer_iso_url} "
+                f"|| goto windows_failed"
+            )
+            iso_info_line = f"echo  Installer media (0xE0/0x81): {installer_iso_path}"
             installer_log_value = installer_iso_path
             installer_mode = "http_fallback"
             logger.warning(
@@ -831,8 +873,12 @@ chain {base}/ipxe/menu
         )
 
         if installer_iso_san_url:
-            iso_attach_cmd = f"sanhook --drive 0x81 {installer_iso_san_url} || goto windows_failed"
-            iso_boot_cmd = "sanboot --drive 0x81 || goto windows_failed"
+            iso_attach_cmd = (
+                f"sanhook --drive 0xE0 --keep {installer_iso_san_url} "
+                f"|| sanhook --drive 0x81 --keep {installer_iso_san_url} "
+                f"|| goto windows_failed"
+            )
+            iso_boot_cmd = "sanboot --drive 0xE0 || sanboot --drive 0x81 || goto windows_failed"
             iso_display = installer_iso_san_url
         else:
             iso_attach_cmd = ""
@@ -902,6 +948,7 @@ kernel {wimboot_url} || goto windows_failed
 initrd {bcd_url} BCD || goto windows_failed
 initrd {sdi_url} boot.sdi || goto windows_failed
 initrd {wim_url} boot.wim || goto windows_failed
+initrd {startnet_url} Windows/System32/startnet.cmd || goto windows_failed
 boot || goto windows_failed
 
 :windows_failed

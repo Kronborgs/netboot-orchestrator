@@ -111,13 +111,19 @@ class IscsiService:
 
         existing_tid = self._get_tid_by_target_name(target_name)
         if existing_tid:
-            return {
-                "success": True,
-                "tid": existing_tid,
-                "target_name": target_name,
-                "san_url": f"iscsi:{self.boot_server_ip}:::1:{target_name}",
-                "reused": True,
-            }
+            ok, _, err = self._run_cmd([
+                "tgtadm", "--lld", "iscsi", "--op", "delete",
+                "--mode", "target", "--tid", str(existing_tid), "--force",
+            ])
+            if not ok:
+                return {
+                    "success": False,
+                    "error": f"Failed to refresh existing installer target {target_name} (tid={existing_tid}): {err}"
+                }
+            logger.info(
+                f"Refreshed existing installer iSCSI target before recreate: "
+                f"target={target_name} tid={existing_tid}"
+            )
 
         tid = self._get_next_tid()
 
