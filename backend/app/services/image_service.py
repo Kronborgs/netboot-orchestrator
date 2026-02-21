@@ -2,6 +2,7 @@ import subprocess
 import os
 import logging
 import re
+import hashlib
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -105,8 +106,11 @@ class IscsiService:
         if not installer_file_path.exists() or not installer_file_path.is_file():
             return {"success": False, "error": f"Installer ISO not found: {installer_file_path}"}
 
-        safe_name = re.sub(r"[^a-z0-9._-]", "-", installer_rel_path.lower())
-        target_suffix = f"winiso.{safe_name}"[:180]
+        safe_name = re.sub(r"[^a-z0-9.-]", "-", installer_rel_path.lower())
+        safe_name = re.sub(r"-+", "-", safe_name).strip(".-")
+        digest = hashlib.sha1(installer_rel_path.encode("utf-8")).hexdigest()[:12]
+        base_name = (safe_name[:48] if safe_name else "installer")
+        target_suffix = f"winiso.{base_name}.{digest}"[:180]
         target_name = f"{self.iqn_prefix}:{target_suffix}"
 
         existing_tid = self._get_tid_by_target_name(target_name)
