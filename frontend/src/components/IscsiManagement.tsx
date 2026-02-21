@@ -29,6 +29,8 @@ export const IscsiManagement: React.FC = () => {
   const [creating, setCreating] = useState(false);
   const [copying, setCopying] = useState<string | null>(null);
   const [copyName, setCopyName] = useState('');
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameName, setRenameName] = useState('');
   const [linking, setLinking] = useState<string | null>(null);
   const [linkMac, setLinkMac] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -123,6 +125,25 @@ export const IscsiManagement: React.FC = () => {
       }
     } catch (e) {
       setError('Failed to copy image');
+    }
+  };
+
+  const handleRename = async () => {
+    if (!renaming || !renameName.trim()) return;
+    try {
+      const res = await apiFetch(`/api/v1/boot/iscsi/images/${renaming}/rename?new_name=${encodeURIComponent(renameName)}`, { method: 'POST' });
+      if (res.ok) {
+        setSuccess(`Image renamed to "${renameName}"`);
+        setRenaming(null);
+        setRenameName('');
+        await fetchImages();
+        await fetchDevices();
+      } else {
+        const data = await res.json();
+        setError(data.detail || 'Failed to rename');
+      }
+    } catch (e) {
+      setError('Failed to rename image');
     }
   };
 
@@ -274,6 +295,9 @@ export const IscsiManagement: React.FC = () => {
                     <button className="btn-primary btn-small" onClick={() => { setLinking(img.id); setLinkMac(''); }}>
                       Link
                     </button>
+                    <button className="btn-outline btn-small" onClick={() => { setRenaming(img.id); setRenameName(img.id); }}>
+                      Rename
+                    </button>
                     <button className="btn-outline btn-small" onClick={() => { setCopying(img.id); setCopyName(`${img.id}-copy`); }}>
                       Copy
                     </button>
@@ -314,6 +338,32 @@ export const IscsiManagement: React.FC = () => {
             <div className="modal-footer">
               <button className="btn-outline" onClick={() => setCopying(null)}>Cancel</button>
               <button className="btn-primary" onClick={handleCopy} disabled={!copyName.trim()}>Copy Image</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rename Modal */}
+      {renaming && (
+        <div className="modal-overlay active">
+          <div className="modal">
+            <div className="modal-header">Rename iSCSI Image</div>
+            <div style={{ marginBottom: '16px', color: 'var(--text-secondary)' }}>
+              Current name: <strong>{renaming}</strong>
+            </div>
+            <div className="form-group">
+              <label>New Image Name</label>
+              <input
+                type="text"
+                value={renameName}
+                onChange={(e) => setRenameName(e.target.value)}
+                placeholder="e.g., win11-lab-01"
+                pattern="[a-zA-Z0-9_-]+"
+              />
+            </div>
+            <div className="modal-footer">
+              <button className="btn-outline" onClick={() => setRenaming(null)}>Cancel</button>
+              <button className="btn-primary" onClick={handleRename} disabled={!renameName.trim()}>Rename Image</button>
             </div>
           </div>
         </div>

@@ -285,6 +285,71 @@ class IscsiService:
             dest_file.unlink(missing_ok=True)
             return {"success": False, "error": str(e)}
 
+    def rename_image(self, source_name: str, dest_name: str) -> Dict:
+        """Rename an iSCSI image, move file, and re-register target."""
+        source_name = source_name.strip()
+        dest_name = dest_name.strip()
+
+        if not source_name or not dest_name:
+            return {"success": False, "error": "Source and destination names are required"}
+        if source_name == dest_name:
+            return {"success": False, "error": "Destination name must be different"}
+
+        source_image = self.db.get_image(source_name)
+        if not source_image:
+            return {"success": False, "error": f"Image '{source_name}' not found"}
+        if self.db.get_image(dest_name):
+            return {"success": False, "error": f"Image '{dest_name}' already exists"}
+
+        source_file = self.images_path / f"{source_name}.img"
+        dest_file = self.images_path / f"{dest_name}.img"
+        if not source_file.exists():
+            return {"success": False, "error": f"Source image file not found: {source_file}"}
+        if dest_file.exists():
+            return {"success": False, "error": f"Destination file already exists: {dest_file}"}
+
+        old_tid = source_image.get("tid")
+        if old_tid:
+            self._run_cmd([
+                "tgtadm", "--lld", "iscsi", "--op", "delete",
+                "--mode", "target", "--tid", str(old_tid), "--force",
+            ])
+
+        try:
+            source_file.rename(dest_file)
+
+            tid, target_name, err = self._register_target(dest_name, dest_file)
+            if err:
+                dest_file.rename(source_file)
+                if old_tid:
+                    self._register_target(source_name, source_file)
+                return {"success": False, "error": err}
+
+            updated = dict(source_image)
+            updated["id"] = dest_name
+            updated["name"] = dest_name
+            updated["tid"] = tid
+            updated["target_name"] = target_name
+            updated["file_path"] = str(dest_file)
+
+            self.db.create_image(dest_name, updated)
+            self.db.delete_image(source_name)
+
+            assigned_to = source_image.get("assigned_to")
+            if assigned_to:
+                self.db.update_device(assigned_to, {"image_id": dest_name})
+
+            return {"success": True, "image": self.db.get_image(dest_name)}
+        except Exception as e:
+            if not source_file.exists() and dest_file.exists():
+                try:
+                    dest_file.rename(source_file)
+                except Exception:
+                    pass
+            if old_tid:
+                self._register_target(source_name, source_file)
+            return {"success": False, "error": str(e)}
+
     # ── link / unlink ───────────────────────────────────────
 
     def link_device(self, image_name: str, mac: str) -> Dict:

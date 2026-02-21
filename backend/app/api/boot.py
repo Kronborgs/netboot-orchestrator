@@ -49,12 +49,21 @@ BRANDING = "Netboot Orchestrator is designed by Kenneth Kronborg AI Team"
 
 @router.get("/winpe/startnet.cmd")
 async def winpe_startnet_cmd(
-    portal_ip: str = Query(""),
-    target_iqn: str = Query(""),
+    iscsi_meta: str = Query(""),
 ):
     """WinPE startup script that auto-launches Windows setup from installer media."""
-    portal_ip = portal_ip.strip()
-    target_iqn = target_iqn.strip()
+    portal_ip = ""
+    target_iqn = ""
+    if iscsi_meta:
+        try:
+            decoded = iscsi_meta.strip()
+            if "|" in decoded:
+                portal_ip, target_iqn = decoded.split("|", 1)
+                portal_ip = portal_ip.strip()
+                target_iqn = target_iqn.strip()
+        except Exception:
+            portal_ip = ""
+            target_iqn = ""
 
     iscsi_attach_block = ""
     if portal_ip and target_iqn:
@@ -74,21 +83,25 @@ echo.
 echo ================================================
 echo  Netboot Orchestrator - Windows Setup Autostart
 echo ================================================
-echo Searching for installer media...
+echo Searching for installer media (auto mode)...
 
 {iscsi_attach_block}
 
-for %%L in (D E F G H I J K L M N O P Q R S T U V W X Y Z) do (
-    if exist %%L:\setup.exe (
-        echo Found installer on %%L:\
-        start "" %%L:\setup.exe
-        goto :done
+for /L %%R in (1,1,20) do (
+    wpeutil UpdateBootInfo >nul 2>&1
+    for %%L in (D E F G H I J K L M N O P Q R S T U V W X Y Z) do (
+        if exist %%L:\setup.exe (
+            echo Found installer on %%L:\
+            %%L:\setup.exe
+            goto :done
+        )
+        if exist %%L:\sources\setup.exe (
+            echo Found installer on %%L:\sources\
+            %%L:\sources\setup.exe
+            goto :done
+        )
     )
-    if exist %%L:\sources\setup.exe (
-        echo Found installer on %%L:\sources\
-        start "" %%L:\sources\setup.exe
-        goto :done
-    )
+    timeout /t 2 >nul
 )
 
 echo.
@@ -868,9 +881,10 @@ chain {base}/ipxe/menu
         installer_mode = "san_url"
         portal_ip, target_iqn = _parse_iscsi_san_url(installer_iso_san_url)
         if portal_ip and target_iqn:
+            iscsi_meta = quote(f"{portal_ip}|{target_iqn}", safe='')
             startnet_url = (
                 f"http://{boot_ip}:8000/api/v1/boot/winpe/startnet.cmd"
-                f"?portal_ip={quote(portal_ip, safe='')}&target_iqn={quote(target_iqn, safe='')}"
+                f"?iscsi_meta={iscsi_meta}"
             )
         logger.info(f"Windows install optional ISO SAN configured: {installer_iso_san_url}")
     elif installer_iso_path:
@@ -893,9 +907,10 @@ chain {base}/ipxe/menu
                 portal_ip = parsed_portal or portal_ip
                 target_iqn = parsed_iqn or target_iqn
             if portal_ip and target_iqn:
+                iscsi_meta = quote(f"{portal_ip}|{target_iqn}", safe='')
                 startnet_url = (
                     f"http://{boot_ip}:8000/api/v1/boot/winpe/startnet.cmd"
-                    f"?portal_ip={quote(portal_ip, safe='')}&target_iqn={quote(target_iqn, safe='')}"
+                    f"?iscsi_meta={iscsi_meta}"
                 )
             logger.info(
                 f"Windows install installer ISO exported as iSCSI: path={installer_iso_path} "
@@ -1222,6 +1237,21 @@ async def copy_iscsi_image(
     iscsi = get_iscsi_service()
     db.add_boot_log("webui", "iscsi_copy", f"Copying {name} -> {dest_name}")
     result = iscsi.copy_image(name, dest_name)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+    return result
+
+
+@router.post("/iscsi/images/{name}/rename")
+async def rename_iscsi_image(
+    name: str,
+    new_name: str = Query(...),
+    db: Database = Depends(get_db),
+):
+    """Rename an iSCSI image."""
+    iscsi = get_iscsi_service()
+    db.add_boot_log("webui", "iscsi_rename", f"Renaming {name} -> {new_name}")
+    result = iscsi.rename_image(name, new_name)
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("error"))
     return result
