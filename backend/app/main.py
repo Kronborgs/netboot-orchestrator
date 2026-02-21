@@ -1,5 +1,6 @@
 import os
 import logging
+import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +10,17 @@ from .api import v1, boot
 logger = logging.getLogger(__name__)
 
 BRANDING = "Netboot Orchestrator is designed by Kenneth Kronborg AI Team"
+
+
+_tz = (os.getenv("TZ") or os.getenv("TZ ") or "").strip()
+if _tz:
+    try:
+        os.environ["TZ"] = _tz
+        if hasattr(time, "tzset"):
+            time.tzset()
+        logger.info(f"Timezone configured from TZ env: {_tz}")
+    except Exception as e:
+        logger.warning(f"Failed to apply TZ env '{_tz}': {e}")
 
 
 @asynccontextmanager

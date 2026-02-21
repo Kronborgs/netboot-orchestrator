@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 
 class Database:
@@ -47,6 +48,16 @@ class Database:
         """Write JSON file safely."""
         with open(file_path, 'w') as f:
             json.dump(data, f, indent=2)
+
+    @staticmethod
+    def _now_iso() -> str:
+        tz_name = (os.getenv("TZ") or os.getenv("TZ ") or "").strip()
+        if tz_name:
+            try:
+                return datetime.now(ZoneInfo(tz_name)).isoformat()
+            except Exception:
+                pass
+        return datetime.now().astimezone().isoformat()
     
     # Device/Profile operations
     def get_device(self, mac: str) -> Optional[Dict]:
@@ -59,7 +70,7 @@ class Database:
     
     def create_device(self, mac: str, device_data: Dict) -> Dict:
         profiles = self._read_json(self.profiles_file)
-        profiles[mac] = {**device_data, "mac": mac, "created_at": datetime.now().isoformat()}
+        profiles[mac] = {**device_data, "mac": mac, "created_at": self._now_iso()}
         self._write_json(self.profiles_file, profiles)
         return profiles[mac]
     
@@ -67,7 +78,7 @@ class Database:
         profiles = self._read_json(self.profiles_file)
         if mac in profiles:
             profiles[mac].update(device_data)
-            profiles[mac]["updated_at"] = datetime.now().isoformat()
+            profiles[mac]["updated_at"] = self._now_iso()
             self._write_json(self.profiles_file, profiles)
             return profiles[mac]
         return None
@@ -91,7 +102,7 @@ class Database:
     
     def create_image(self, image_id: str, image_data: Dict) -> Dict:
         images = self._read_json(self.images_file)
-        images[image_id] = {**image_data, "id": image_id, "created_at": datetime.now().isoformat()}
+        images[image_id] = {**image_data, "id": image_id, "created_at": self._now_iso()}
         self._write_json(self.images_file, images)
         return images[image_id]
     
@@ -151,7 +162,7 @@ class Database:
         unknown[mac] = {
             "mac": mac,
             "device_type": device_type,
-            "boot_time": datetime.now().isoformat(),
+            "boot_time": self._now_iso(),
             "status": "unknown"
         }
         self._write_json(self.unknown_devices_file, unknown)
@@ -187,7 +198,7 @@ class Database:
             "event": event,
             "details": details,
             "ip": ip,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": self._now_iso(),
         }
         logs.append(entry)
         # Keep last 500 log entries

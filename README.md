@@ -351,6 +351,7 @@ cp .env.example .env
 | `WINDOWS_OS_INSTALLER_ISO_PATH` | *(empty)* | Optional installer ISO path under `OS_INSTALLERS_PATH` used for WinPE media attach |
 | `WINDOWS_INSTALLER_ISO_SAN_URL` | *(empty)* | Optional pre-existing SAN URL for installer media |
 | `WINDOWS_INSTALLER_ISO_PATH` | *(empty)* | Optional fallback installer ISO path under `OS_INSTALLERS_PATH` |
+| `TZ` | `UTC` | Container/application timezone (e.g., `Europe/Copenhagen`) used for logs and timestamps |
 | `API_HOST` | `0.0.0.0` | FastAPI bind address |
 | `API_PORT` | `8000` | FastAPI port |
 | `LOG_LEVEL` | `info` | Uvicorn log level |
@@ -555,6 +556,6 @@ If you find this project useful, please consider giving it a star! It helps othe
 
 **Repository**: [Kronborgs/netboot-orchestrator](https://github.com/Kronborgs/netboot-orchestrator)
 
-**Version**: 2026-02-21-V144
+**Version**: 2026-02-21-V145
 
 **Last Updated**: February 21, 2026

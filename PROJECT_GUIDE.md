@@ -1,7 +1,7 @@
 # Netboot Orchestrator - Project Guide
 
 **Last Updated:** February 21, 2026  
-**Version:** 2026-02-21-V144  
+**Version:** 2026-02-21-V145  
 **Status:** Fully operational — PXE boot, iSCSI, WebUI, CI/CD all working  
 **Branding:** Designed by Kenneth Kronborg AI Team
 
@@ -149,6 +149,7 @@ FastAPI serves file with Range request support (206 Partial Content)
 | `WINDOWS_OS_INSTALLER_ISO_PATH` | No | empty | Relative path under `OS_INSTALLERS_PATH` to a full Windows installer ISO; backend exports it as iSCSI CD media for WinPE |
 | `WINDOWS_INSTALLER_ISO_SAN_URL` | No | empty | Optional SAN URL for installer media mounted as iPXE drive `0x81` (example: `iscsi:IP::::IQN`) |
 | `WINDOWS_INSTALLER_ISO_PATH` | No | empty | Optional fallback relative file path under `OS_INSTALLERS_PATH` to mount as media on `0x81` |
+| `TZ` | No | `UTC` | Container/application timezone (e.g., `Europe/Copenhagen`) used for logs and timestamps |
 | `API_HOST` | No | `0.0.0.0` | FastAPI listen address |
 | `API_PORT` | No | `8000` | FastAPI listen port |
 | `LOG_LEVEL` | No | `info` | Uvicorn log level |
