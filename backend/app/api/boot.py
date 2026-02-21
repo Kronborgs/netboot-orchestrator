@@ -88,6 +88,7 @@ wpeutil UpdateBootInfo >nul 2>&1
 """
 
     script = f"""@echo off
+setlocal EnableExtensions EnableDelayedExpansion
 wpeinit
 wpeutil InitializeNetwork >nul 2>&1
 where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{log_url_base}WinPE%20startnet%20started' -Method Get | Out-Null }} catch {{}}" >nul 2>&1
@@ -106,13 +107,13 @@ for /L %%R in (1,1,60) do (
         if exist %%L:\setup.exe (
             echo Found installer on %%L:\
             call :log_setup %%L
-            start "" %%L:\setup.exe
+            start "" %%L:\setup.exe /DynamicUpdate Disable
             goto :done
         )
         if exist %%L:\sources\setup.exe (
             echo Found installer on %%L:\sources\
             call :log_setup %%L
-            start "" %%L:\sources\setup.exe
+            start "" %%L:\sources\setup.exe /DynamicUpdate Disable
             goto :done
         )
     )
