@@ -1210,6 +1210,34 @@ async def get_boot_logs(
     return db.get_boot_logs(mac=mac, limit=limit)
 
 
+@router.get("/devices/{mac}/metrics")
+async def get_device_metrics(mac: str, db: Database = Depends(get_db)):
+    """Get connection/network/disk metrics for a specific device (best effort)."""
+    device = db.get_device(mac)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    image_id = device.get("image_id")
+    if not image_id:
+        return {
+            "mac": mac,
+            "name": device.get("name"),
+            "image_id": None,
+            "linked": False,
+            "message": "No iSCSI image linked",
+        }
+
+    iscsi = get_iscsi_service()
+    metrics = iscsi.get_image_connection_metrics(image_id)
+    if not metrics.get("success"):
+        raise HTTPException(status_code=400, detail=metrics.get("error", "Unable to fetch metrics"))
+
+    metrics["mac"] = mac
+    metrics["name"] = device.get("name")
+    metrics["linked"] = True
+    return metrics
+
+
 # =====================================================================
 #  iSCSI REST API (for WebUI)
 # =====================================================================

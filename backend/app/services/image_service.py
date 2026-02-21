@@ -3,6 +3,7 @@ import os
 import logging
 import re
 import hashlib
+from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -70,6 +71,121 @@ class IscsiService:
             elif current_tid and target_name in line:
                 return current_tid
         return None
+
+    @staticmethod
+    def _extract_first_int(text: str, patterns: List[str]) -> Optional[int]:
+        for pattern in patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                try:
+                    return int(match.group(1))
+                except Exception:
+                    continue
+        return None
+
+    @staticmethod
+    def _read_proc_net_totals() -> Dict[str, int]:
+        totals = defaultdict(int)
+        try:
+            with open("/proc/net/dev", "r", encoding="utf-8") as f:
+                lines = f.readlines()[2:]
+            for line in lines:
+                if ":" not in line:
+                    continue
+                iface, data = line.split(":", 1)
+                iface = iface.strip()
+                if iface == "lo":
+                    continue
+                parts = data.split()
+                if len(parts) >= 16:
+                    totals["rx_bytes"] += int(parts[0])
+                    totals["tx_bytes"] += int(parts[8])
+        except Exception:
+            return {"rx_bytes": 0, "tx_bytes": 0}
+        return {"rx_bytes": int(totals["rx_bytes"]), "tx_bytes": int(totals["tx_bytes"])}
+
+    @staticmethod
+    def _read_proc_self_io() -> Dict[str, int]:
+        values = {"read_bytes": 0, "write_bytes": 0}
+        try:
+            with open("/proc/self/io", "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("read_bytes:"):
+                        values["read_bytes"] = int(line.split(":", 1)[1].strip())
+                    elif line.startswith("write_bytes:"):
+                        values["write_bytes"] = int(line.split(":", 1)[1].strip())
+        except Exception:
+            pass
+        return values
+
+    def get_image_connection_metrics(self, image_name: str) -> Dict:
+        """Get iSCSI connection + IO metrics for an image (best effort)."""
+        image = self.db.get_image(image_name)
+        if not image:
+            return {"success": False, "error": f"Image '{image_name}' not found"}
+
+        target_name = image.get("target_name", f"{self.iqn_prefix}:{image_name}")
+        tid = image.get("tid")
+        network_totals = self._read_proc_net_totals()
+        process_io = self._read_proc_self_io()
+
+        base_result = {
+            "success": True,
+            "image_id": image_name,
+            "target_name": target_name,
+            "tid": tid,
+            "assigned_to": image.get("assigned_to"),
+            "connection": {
+                "active": False,
+                "session_count": 0,
+                "remote_ips": [],
+            },
+            "disk_io": {
+                "read_bytes": process_io.get("read_bytes", 0),
+                "write_bytes": process_io.get("write_bytes", 0),
+                "source": "process_io",
+            },
+            "network": {
+                "rx_bytes": network_totals.get("rx_bytes", 0),
+                "tx_bytes": network_totals.get("tx_bytes", 0),
+                "source": "server_net",
+            },
+        }
+
+        if not tid:
+            return base_result
+
+        ok, stdout, err = self._run_cmd([
+            "tgtadm", "--lld", "iscsi", "--op", "show", "--mode", "target", "--tid", str(tid)
+        ])
+        if not ok:
+            base_result["warning"] = f"tgtadm metrics unavailable: {err}"
+            return base_result
+
+        remote_ips = sorted(set(re.findall(r"IP Address:\s*([0-9a-fA-F:.]+)", stdout)))
+        base_result["connection"]["remote_ips"] = remote_ips
+        base_result["connection"]["session_count"] = len(remote_ips)
+        base_result["connection"]["active"] = len(remote_ips) > 0
+
+        read_bytes = self._extract_first_int(stdout, [
+            r"read[_\s-]*bytes\s*[:=]\s*(\d+)",
+            r"\bread\s*[:=]\s*(\d+)\s*bytes",
+            r"\brd_bytes\s*[:=]\s*(\d+)",
+        ])
+        write_bytes = self._extract_first_int(stdout, [
+            r"write[_\s-]*bytes\s*[:=]\s*(\d+)",
+            r"\bwrite\s*[:=]\s*(\d+)\s*bytes",
+            r"\bwr_bytes\s*[:=]\s*(\d+)",
+        ])
+
+        if read_bytes is not None:
+            base_result["disk_io"]["read_bytes"] = int(read_bytes)
+            base_result["disk_io"]["source"] = "target_stats"
+        if write_bytes is not None:
+            base_result["disk_io"]["write_bytes"] = int(write_bytes)
+            base_result["disk_io"]["source"] = "target_stats"
+
+        return base_result
 
     def _register_target(self, name: str, file_path: Path) -> tuple:
         """Register a file as a tgtd iSCSI target. Returns (tid, target_name, error)."""
