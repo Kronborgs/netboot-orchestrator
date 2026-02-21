@@ -125,12 +125,15 @@ class IscsiService:
             return {"success": False, "error": f"Image '{image_name}' not found"}
 
         target_name = image.get("target_name", f"{self.iqn_prefix}:{image_name}")
-        tid = image.get("tid")
+        stored_tid = image.get("tid")
+        resolved_tid = self._get_tid_by_target_name(target_name)
+        tid = resolved_tid or stored_tid
         base_result = {
             "success": True,
             "image_id": image_name,
             "target_name": target_name,
             "tid": tid,
+            "stored_tid": stored_tid,
             "assigned_to": image.get("assigned_to"),
             "connection": {
                 "active": False,
@@ -159,10 +162,23 @@ class IscsiService:
             base_result["warning"] = f"tgtadm metrics unavailable: {err}"
             return base_result
 
-        remote_ips = sorted(set(re.findall(r"IP Address:\s*([0-9a-fA-F:.]+)", stdout)))
+        connection_count = len(re.findall(r"^\s*Connection:\s*\d+", stdout, flags=re.MULTILINE))
+        remote_ips = sorted(set(re.findall(r"IP Address:\s*([^\s]+)", stdout)))
+        if not remote_ips:
+            remote_ips = sorted(set(re.findall(r"Address:\s*([^\s]+)", stdout)))
+
+        normalized_remote_ips = []
+        for raw_ip in remote_ips:
+            cleaned = raw_ip.strip().strip("[]")
+            if cleaned.lower().startswith("::ffff:"):
+                cleaned = cleaned[7:]
+            if cleaned:
+                normalized_remote_ips.append(cleaned)
+
+        remote_ips = sorted(set(normalized_remote_ips))
         base_result["connection"]["remote_ips"] = remote_ips
-        base_result["connection"]["session_count"] = len(remote_ips)
-        base_result["connection"]["active"] = len(remote_ips) > 0
+        base_result["connection"]["session_count"] = max(connection_count, len(remote_ips))
+        base_result["connection"]["active"] = base_result["connection"]["session_count"] > 0
 
         read_bytes = self._extract_first_int(stdout, [
             r"read[_\s-]*bytes\s*[:=]\s*(\d+)",
@@ -211,6 +227,15 @@ class IscsiService:
                 matched = True
                 total_rx += int(entry.get("rx_bytes", 0))
                 total_tx += int(entry.get("tx_bytes", 0))
+
+            if not matched and base_result["connection"]["session_count"] == 1:
+                # If tgtd does not expose remote IP but exactly one iSCSI session is active,
+                # use aggregate socket counters as a best-effort mapping.
+                if len(socket_stats) == 1:
+                    only = next(iter(socket_stats.values()))
+                    total_rx = int(only.get("rx_bytes", 0))
+                    total_tx = int(only.get("tx_bytes", 0))
+                    matched = True
 
             if matched:
                 if base_result["network"]["source"] == "unavailable":
