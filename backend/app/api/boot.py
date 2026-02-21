@@ -22,6 +22,7 @@ from pathlib import Path
 from urllib.parse import quote
 import unicodedata
 import re
+from datetime import datetime
 from ..database import Database
 from ..services.file_service import FileService
 from ..services.image_service import IscsiService
@@ -87,6 +88,10 @@ async def winpe_startnet_cmd(
     setupact_upload_url = (
         f"http://{boot_ip}:8000/api/v1/boot/winpe/logs/upload"
         f"?mac={mac_encoded}&name=setupact.log"
+    )
+    setuperr_upload_url = (
+        f"http://{boot_ip}:8000/api/v1/boot/winpe/logs/upload"
+        f"?mac={mac_encoded}&name=setuperr.log"
     )
     startnet_upload_url = (
         f"http://{boot_ip}:8000/api/v1/boot/winpe/logs/upload"
@@ -236,16 +241,36 @@ set SETUPACT_PATH=
 for %%P in ("X:\Windows\Panther\setupact.log" "X:\$WINDOWS.~BT\Sources\Panther\setupact.log" "C:\$WINDOWS.~BT\Sources\Panther\setupact.log" "C:\Windows\Panther\setupact.log") do (
     if exist %%~P set SETUPACT_PATH=%%~P
 )
-if not defined SETUPACT_PATH exit /b 0
-call :trace uploading setupact from %SETUPACT_PATH%
-set UPLOAD_OK=
-where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{setupact_upload_url}' -Method Put -InFile $env:SETUPACT_PATH | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && set UPLOAD_OK=1
-if not defined UPLOAD_OK where curl.exe >nul 2>&1 && curl.exe -fsS -X PUT --data-binary "@%SETUPACT_PATH%" "{setupact_upload_url}" >nul 2>&1 && set UPLOAD_OK=1
-if not defined UPLOAD_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_setupact /upload /priority normal "%SETUPACT_PATH%" "{setupact_upload_url}" >nul 2>&1 && set UPLOAD_OK=1
-if defined UPLOAD_OK (
-    call :log_http "{log_url_base}setupact_uploaded"
-) else (
-    call :log_http "{log_url_base}setupact_upload_failed"
+if defined SETUPACT_PATH (
+    call :trace uploading setupact from %SETUPACT_PATH%
+    set UPLOAD_OK=
+    where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ $wc = New-Object System.Net.WebClient; $null = $wc.UploadFile('{setupact_upload_url}', 'PUT', $env:SETUPACT_PATH); exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && set UPLOAD_OK=1
+    if not defined UPLOAD_OK where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{setupact_upload_url}' -Method Put -InFile $env:SETUPACT_PATH | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && set UPLOAD_OK=1
+    if not defined UPLOAD_OK where curl.exe >nul 2>&1 && curl.exe -fsS -X PUT --data-binary "@%SETUPACT_PATH%" "{setupact_upload_url}" >nul 2>&1 && set UPLOAD_OK=1
+    if not defined UPLOAD_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_setupact /upload /priority normal "%SETUPACT_PATH%" "{setupact_upload_url}" >nul 2>&1 && set UPLOAD_OK=1
+    if defined UPLOAD_OK (
+        call :log_http "{log_url_base}setupact_uploaded"
+    ) else (
+        call :log_http "{log_url_base}setupact_upload_failed"
+    )
+)
+
+set SETUPERR_PATH=
+for %%P in ("X:\Windows\Panther\setuperr.log" "X:\$WINDOWS.~BT\Sources\Panther\setuperr.log" "C:\$WINDOWS.~BT\Sources\Panther\setuperr.log" "C:\Windows\Panther\setuperr.log") do (
+    if exist %%~P set SETUPERR_PATH=%%~P
+)
+if defined SETUPERR_PATH (
+    call :trace uploading setuperr from %SETUPERR_PATH%
+    set ERR_OK=
+    where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ $wc = New-Object System.Net.WebClient; $null = $wc.UploadFile('{setuperr_upload_url}', 'PUT', $env:SETUPERR_PATH); exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && set ERR_OK=1
+    if not defined ERR_OK where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{setuperr_upload_url}' -Method Put -InFile $env:SETUPERR_PATH | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && set ERR_OK=1
+    if not defined ERR_OK where curl.exe >nul 2>&1 && curl.exe -fsS -X PUT --data-binary "@%SETUPERR_PATH%" "{setuperr_upload_url}" >nul 2>&1 && set ERR_OK=1
+    if not defined ERR_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_setuperr /upload /priority normal "%SETUPERR_PATH%" "{setuperr_upload_url}" >nul 2>&1 && set ERR_OK=1
+    if defined ERR_OK (
+        call :log_http "{log_url_base}setuperr_uploaded"
+    ) else (
+        call :log_http "{log_url_base}setuperr_upload_failed"
+    )
 )
 exit /b 0
 
@@ -265,6 +290,7 @@ exit /b 0
 
 :log_http
 set "LOG_URL=%~1"
+where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ $wc = New-Object System.Net.WebClient; $null = $wc.DownloadString($env:LOG_URL); exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && exit /b 0
 where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri $env:LOG_URL -Method Get | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && exit /b 0
 where curl.exe >nul 2>&1 && curl.exe -fsS "%LOG_URL%" >nul 2>&1 && exit /b 0
 exit /b 0
@@ -418,6 +444,37 @@ async def upload_winpe_log(
     target_file.write_bytes(content)
 
     db.add_boot_log(mac, "winpe_log_upload", f"{name} uploaded ({len(content)} bytes)")
+
+    lower_name = name.lower()
+    if lower_name in {"setupact.log", "setuperr.log"}:
+        raw_text = ""
+        for encoding in ("utf-8", "utf-16", "latin-1"):
+            try:
+                raw_text = content.decode(encoding, errors="ignore")
+                if raw_text:
+                    break
+            except Exception:
+                continue
+
+        if raw_text:
+            lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+            tail = lines[-600:]
+            pattern = re.compile(r"(error|failed|failure|cannot|0x[0-9a-f]+|rollback|abort)", re.IGNORECASE)
+            hints = []
+            for line in tail:
+                if pattern.search(line):
+                    compact = re.sub(r"\s+", " ", line)
+                    if compact not in hints:
+                        hints.append(compact[:320])
+                if len(hints) >= 5:
+                    break
+
+            if hints:
+                for hint in hints:
+                    db.add_boot_log(mac, "winpe_setup_hint", f"{name}: {hint}")
+            else:
+                db.add_boot_log(mac, "winpe_setup_hint", f"{name}: no explicit error keywords found in recent log tail")
+
     return {"success": True, "name": name, "size_bytes": len(content)}
 
 
