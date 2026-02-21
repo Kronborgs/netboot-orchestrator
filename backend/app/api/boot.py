@@ -117,13 +117,13 @@ if not "%INSTALLER_TARGET%"=="" (
 
     script = f"""@echo off
 setlocal EnableExtensions EnableDelayedExpansion
-set TRACE_FILE=%TEMP%\netboot-startnet.log
+set "TRACE_FILE=X:\\netboot-startnet.log"
 set TRACE_ENABLED=1
 2>nul (echo [startnet] begin %DATE% %TIME% > "%TRACE_FILE%") || set TRACE_ENABLED=
 wpeinit
 wpeutil InitializeNetwork >nul 2>&1
 call :trace wpeinit completed
-call :log_http "{log_url_base}WinPE%20startnet%20started"
+call :log_http "{log_url_base}winpe_startnet_started"
 echo.
 echo ================================================
 echo  Netboot Orchestrator - Windows Setup Autostart
@@ -133,7 +133,7 @@ echo Searching for installer media (auto mode)...
 {iscsi_attach_block}
 
 if exist E:\setup.exe (
-    call :trace found setup.exe on E:\
+    call :trace found setup.exe on E:
     call :log_setup E
     call :upload_setupact
     start /wait "" E:\setup.exe
@@ -144,7 +144,7 @@ if exist E:\setup.exe (
 )
 
 if exist E:\sources\setup.exe (
-    call :trace found setup.exe on E:\sources\
+    call :trace found setup.exe on E:\sources
     call :log_setup E
     call :upload_setupact
     start /wait "" E:\sources\setup.exe
@@ -197,8 +197,8 @@ exit /b 0
 
 :log_setup
 set DRIVE=%1
-set EVENT_URL={log_url_base}Auto%20setup%20started%20from%20drive%20%DRIVE%%3A
-call :log_http "%EVENT_URL%"
+set "EVENT_URL={log_url_base}auto_setup_started_drive_%DRIVE%"
+call :log_http "!EVENT_URL!"
 exit /b 0
 
 :attach_iscsi
@@ -231,8 +231,8 @@ exit /b 0
 
 :log_setup_exit
 set EXIT_CODE=%1
-set EVENT_URL={log_url_base}Setup%20process%20exited%20with%20code%20%EXIT_CODE%
-call :log_http "%EVENT_URL%"
+set "EVENT_URL={log_url_base}setup_process_exit_code_%EXIT_CODE%"
+call :log_http "!EVENT_URL!"
 exit /b 0
 
 :upload_setupact
@@ -247,9 +247,9 @@ where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass 
 if not defined UPLOAD_OK where curl.exe >nul 2>&1 && curl.exe -fsS -X PUT --data-binary "@%SETUPACT_PATH%" "{setupact_upload_url}" >nul 2>&1 && set UPLOAD_OK=1
 if not defined UPLOAD_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_setupact /upload /priority normal "%SETUPACT_PATH%" "{setupact_upload_url}" >nul 2>&1 && set UPLOAD_OK=1
 if defined UPLOAD_OK (
-    call :log_http "{log_url_base}setupact.log%20uploaded"
+    call :log_http "{log_url_base}setupact_uploaded"
 ) else (
-    call :log_http "{log_url_base}setupact.log%20upload%20failed%20(no%20supported%20HTTP%20client)"
+    call :log_http "{log_url_base}setupact_upload_failed"
 )
 exit /b 0
 
@@ -261,17 +261,17 @@ where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass 
 if not defined TRACE_OK where curl.exe >nul 2>&1 && curl.exe -fsS -X PUT --data-binary "@%TRACE_FILE%" "{startnet_upload_url}" >nul 2>&1 && set TRACE_OK=1
 if not defined TRACE_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_startnet /upload /priority normal "%TRACE_FILE%" "{startnet_upload_url}" >nul 2>&1 && set TRACE_OK=1
 if defined TRACE_OK (
-    call :log_http "{log_url_base}startnet.log%20uploaded"
+    call :log_http "{log_url_base}startnet_uploaded"
 ) else (
-    call :log_http "{log_url_base}startnet.log%20upload%20failed%20(no%20supported%20HTTP%20client)"
+    call :log_http "{log_url_base}startnet_upload_failed"
 )
 exit /b 0
 
 :log_http
-set LOG_URL=%~1
+set "LOG_URL=%~1"
 where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri $env:LOG_URL -Method Get | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && exit /b 0
 where curl.exe >nul 2>&1 && curl.exe -fsS "%LOG_URL%" >nul 2>&1 && exit /b 0
-where certutil.exe >nul 2>&1 && certutil -urlcache -split -f "%LOG_URL%" "X:\Windows\Temp\nb-http.tmp" >nul 2>&1 && del /f /q "X:\Windows\Temp\nb-http.tmp" >nul 2>&1
+where certutil.exe >nul 2>&1 && certutil -urlcache -split -f "%LOG_URL%" "X:\nb-http.tmp" >nul 2>&1 && del /f /q "X:\nb-http.tmp" >nul 2>&1
 exit /b 0
 """
     return PlainTextResponse(script)
