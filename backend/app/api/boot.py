@@ -123,8 +123,7 @@ echo [startnet] begin %DATE% %TIME% > %TRACE_FILE%
 wpeinit
 wpeutil InitializeNetwork >nul 2>&1
 call :trace wpeinit completed
-where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{log_url_base}WinPE%20startnet%20started' -Method Get | Out-Null }} catch {{}}" >nul 2>&1
-where curl.exe >nul 2>&1 && curl.exe -fsS "{log_url_base}WinPE%20startnet%20started" >nul 2>&1
+call :log_http "{log_url_base}WinPE%20startnet%20started"
 echo.
 echo ================================================
 echo  Netboot Orchestrator - Windows Setup Autostart
@@ -137,7 +136,7 @@ if exist E:\setup.exe (
     call :trace found setup.exe on E:\
     call :log_setup E
     call :upload_setupact
-    start /wait "" E:\setup.exe /DynamicUpdate Disable
+    start /wait "" E:\setup.exe
     set SETUP_EXIT=!errorlevel!
     call :upload_setupact
     call :log_setup_exit !SETUP_EXIT!
@@ -148,7 +147,7 @@ if exist E:\sources\setup.exe (
     call :trace found setup.exe on E:\sources\
     call :log_setup E
     call :upload_setupact
-    start /wait "" E:\sources\setup.exe /DynamicUpdate Disable
+    start /wait "" E:\sources\setup.exe
     set SETUP_EXIT=!errorlevel!
     call :upload_setupact
     call :log_setup_exit !SETUP_EXIT!
@@ -163,7 +162,7 @@ for /L %%R in (1,1,60) do (
             call :trace found setup.exe on %%L:\
             call :log_setup %%L
             call :upload_setupact
-            start /wait "" %%L:\setup.exe /DynamicUpdate Disable
+            start /wait "" %%L:\setup.exe
             set SETUP_EXIT=!errorlevel!
             call :upload_setupact
             call :log_setup_exit !SETUP_EXIT!
@@ -174,7 +173,7 @@ for /L %%R in (1,1,60) do (
             call :trace found setup.exe on %%L:\sources\
             call :log_setup %%L
             call :upload_setupact
-            start /wait "" %%L:\sources\setup.exe /DynamicUpdate Disable
+            start /wait "" %%L:\sources\setup.exe
             set SETUP_EXIT=!errorlevel!
             call :upload_setupact
             call :log_setup_exit !SETUP_EXIT!
@@ -198,8 +197,8 @@ exit /b 0
 
 :log_setup
 set DRIVE=%1
-where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{log_url_base}Auto%20setup%20started%20from%20drive%20' + $env:DRIVE + '%3A' -Method Get | Out-Null }} catch {{}}" >nul 2>&1
-where curl.exe >nul 2>&1 && curl.exe -fsS "{log_url_base}Auto%20setup%20started%20from%20drive%20%DRIVE%%3A" >nul 2>&1
+set EVENT_URL={log_url_base}Auto%20setup%20started%20from%20drive%20%DRIVE%%3A
+call :log_http "%EVENT_URL%"
 exit /b 0
 
 :attach_iscsi
@@ -231,8 +230,8 @@ exit /b 0
 
 :log_setup_exit
 set EXIT_CODE=%1
-where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{log_url_base}Setup%20process%20exited%20with%20code%20' + $env:EXIT_CODE -Method Get | Out-Null }} catch {{}}" >nul 2>&1
-where curl.exe >nul 2>&1 && curl.exe -fsS "{log_url_base}Setup%20process%20exited%20with%20code%20%EXIT_CODE%" >nul 2>&1
+set EVENT_URL={log_url_base}Setup%20process%20exited%20with%20code%20%EXIT_CODE%
+call :log_http "%EVENT_URL%"
 exit /b 0
 
 :upload_setupact
@@ -242,15 +241,35 @@ for %%P in ("X:\Windows\Panther\setupact.log" "X:\$WINDOWS.~BT\Sources\Panther\s
 )
 if not defined SETUPACT_PATH exit /b 0
 call :trace uploading setupact from %SETUPACT_PATH%
-where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{setupact_upload_url}' -Method Put -InFile $env:SETUPACT_PATH | Out-Null }} catch {{}}" >nul 2>&1
-where curl.exe >nul 2>&1 && curl.exe -fsS -X PUT --data-binary "@%SETUPACT_PATH%" "{setupact_upload_url}" >nul 2>&1
-where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{log_url_base}setupact.log%20uploaded%20from%20' + ($env:SETUPACT_PATH -replace ':','%3A' -replace '\\','%5C') -Method Get | Out-Null }} catch {{}}" >nul 2>&1
+set UPLOAD_OK=
+where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{setupact_upload_url}' -Method Put -InFile $env:SETUPACT_PATH | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && set UPLOAD_OK=1
+if not defined UPLOAD_OK where curl.exe >nul 2>&1 && curl.exe -fsS -X PUT --data-binary "@%SETUPACT_PATH%" "{setupact_upload_url}" >nul 2>&1 && set UPLOAD_OK=1
+if not defined UPLOAD_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_setupact /upload /priority normal "%SETUPACT_PATH%" "{setupact_upload_url}" >nul 2>&1 && set UPLOAD_OK=1
+if defined UPLOAD_OK (
+    call :log_http "{log_url_base}setupact.log%20uploaded"
+) else (
+    call :log_http "{log_url_base}setupact.log%20upload%20failed%20(no%20supported%20HTTP%20client)"
+)
 exit /b 0
 
 :upload_trace
 if not exist %TRACE_FILE% exit /b 0
-where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{startnet_upload_url}' -Method Put -InFile $env:TRACE_FILE | Out-Null }} catch {{}}" >nul 2>&1
-where curl.exe >nul 2>&1 && curl.exe -fsS -X PUT --data-binary "@%TRACE_FILE%" "{startnet_upload_url}" >nul 2>&1
+set TRACE_OK=
+where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{startnet_upload_url}' -Method Put -InFile $env:TRACE_FILE | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && set TRACE_OK=1
+if not defined TRACE_OK where curl.exe >nul 2>&1 && curl.exe -fsS -X PUT --data-binary "@%TRACE_FILE%" "{startnet_upload_url}" >nul 2>&1 && set TRACE_OK=1
+if not defined TRACE_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_startnet /upload /priority normal "%TRACE_FILE%" "{startnet_upload_url}" >nul 2>&1 && set TRACE_OK=1
+if defined TRACE_OK (
+    call :log_http "{log_url_base}startnet.log%20uploaded"
+) else (
+    call :log_http "{log_url_base}startnet.log%20upload%20failed%20(no%20supported%20HTTP%20client)"
+)
+exit /b 0
+
+:log_http
+set LOG_URL=%~1
+where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri $env:LOG_URL -Method Get | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && exit /b 0
+where curl.exe >nul 2>&1 && curl.exe -fsS "%LOG_URL%" >nul 2>&1 && exit /b 0
+where certutil.exe >nul 2>&1 && certutil -urlcache -split -f "%LOG_URL%" "X:\Windows\Temp\nb-http.tmp" >nul 2>&1 && del /f /q "X:\Windows\Temp\nb-http.tmp" >nul 2>&1
 exit /b 0
 """
     return PlainTextResponse(script)
