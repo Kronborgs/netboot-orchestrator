@@ -70,13 +70,6 @@ cd netboot-orchestrator
 
 # 2. Edit docker-compose.yml with your BOOT_SERVER_IP and DHCP_SUBNETS
 
-# 3. Start the container
-docker-compose up -d
-```
-
-### Option C: Docker Pull (Any Linux Host)
-
-```bash
 docker pull ghcr.io/kronborgs/netboot-orchestrator:latest
 docker run -d --name netboot --network host --privileged \
   -e BOOT_SERVER_IP=192.168.1.50 \
@@ -89,15 +82,7 @@ docker run -d --name netboot --network host --privileged \
 
 ### Access the Console
 
-| Interface | URL | Purpose |
-|-----------|-----|---------|
-| **Web Dashboard** | http://localhost:30000 | Device & image management |
-| **API Documentation** | http://localhost:8000/docs | Interactive API explorer |
-| **API Health** | http://localhost:8000/health | Service status check |
 
-## 🏗️ Architecture
-
-### Service Topology
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -109,11 +94,10 @@ docker run -d --name netboot --network host --privileged \
      │                                    │          │
      ▼                                    ▼          ▼
   TFTP                               HTTP/API    iSCSI Target
-(UDP 69)                            (Port 8000)  (Port 3260)
      │                                   │           │
      └───────────────┬────────────────────┴───────────┘
                      │
-        ┌────────────▼─────────────────────────┐
+**Version**: 2026-02-21-V159
         │  netboot-orchestrator (Single Container) │
         │  (Host Network, Privileged)           │
         ├─────────────────────────────────────┤
@@ -556,6 +540,6 @@ If you find this project useful, please consider giving it a star! It helps othe
 
 **Repository**: [Kronborgs/netboot-orchestrator](https://github.com/Kronborgs/netboot-orchestrator)
 
-**Version**: 2026-02-21-V158
+**Version**: 2026-02-21-V159
 
 **Last Updated**: February 21, 2026

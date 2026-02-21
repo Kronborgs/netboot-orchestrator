@@ -49,6 +49,21 @@ interface DeviceLog {
   timestamp: string;
 }
 
+interface DeviceRateSample {
+  timestampMs: number;
+  readBytes?: number;
+  writeBytes?: number;
+  rxBytes?: number;
+  txBytes?: number;
+}
+
+interface DeviceRates {
+  diskReadMBps?: number;
+  diskWriteMBps?: number;
+  inboundMbps?: number;
+  outboundMbps?: number;
+}
+
 interface WinpeLogFile {
   name: string;
   size_bytes: number;
@@ -62,9 +77,11 @@ export const DeviceList: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
   const [expandedMac, setExpandedMac] = useState<string | null>(null);
   const [metricsByMac, setMetricsByMac] = useState<Record<string, DeviceMetrics>>({});
+  const [ratesByMac, setRatesByMac] = useState<Record<string, DeviceRates>>({});
   const [logsByMac, setLogsByMac] = useState<Record<string, DeviceLog[]>>({});
   const [winpeLogsByMac, setWinpeLogsByMac] = useState<Record<string, WinpeLogFile[]>>({});
   const [detailsLoadingByMac, setDetailsLoadingByMac] = useState<Record<string, boolean>>({});
+  const [previousSamplesByMac, setPreviousSamplesByMac] = useState<Record<string, DeviceRateSample>>({});
   const [formData, setFormData] = useState({
     mac: '',
     device_type: 'raspi',
@@ -111,6 +128,16 @@ export const DeviceList: React.FC = () => {
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) return value;
     return parsed.toLocaleString();
+  };
+
+  const formatMBps = (value?: number): string => {
+    if (value === undefined || value === null || value < 0) return '—';
+    return `${value.toFixed(2)} MB/s`;
+  };
+
+  const formatMbps = (value?: number): string => {
+    if (value === undefined || value === null || value < 0) return '—';
+    return `${value.toFixed(1)} Mbps`;
   };
 
   const fetchDevices = async () => {
@@ -194,6 +221,57 @@ export const DeviceList: React.FC = () => {
 
       if (metricsRes.ok) {
         const data = await metricsRes.json();
+        const nowMs = Date.now();
+
+        setPreviousSamplesByMac((previousSamples) => {
+          const last = previousSamples[mac];
+          const nextSample: DeviceRateSample = {
+            timestampMs: nowMs,
+            readBytes: data?.disk_io?.read_bytes,
+            writeBytes: data?.disk_io?.write_bytes,
+            rxBytes: data?.network?.rx_bytes,
+            txBytes: data?.network?.tx_bytes,
+          };
+
+          if (last) {
+            const elapsedSeconds = (nowMs - last.timestampMs) / 1000;
+            if (elapsedSeconds > 0) {
+              const readDelta = (nextSample.readBytes ?? NaN) - (last.readBytes ?? NaN);
+              const writeDelta = (nextSample.writeBytes ?? NaN) - (last.writeBytes ?? NaN);
+              const rxDelta = (nextSample.rxBytes ?? NaN) - (last.rxBytes ?? NaN);
+              const txDelta = (nextSample.txBytes ?? NaN) - (last.txBytes ?? NaN);
+
+              const diskReadMBps = Number.isFinite(readDelta) && readDelta >= 0
+                ? (readDelta / elapsedSeconds) / (1024 * 1024)
+                : undefined;
+              const diskWriteMBps = Number.isFinite(writeDelta) && writeDelta >= 0
+                ? (writeDelta / elapsedSeconds) / (1024 * 1024)
+                : undefined;
+              const inboundMbps = Number.isFinite(rxDelta) && rxDelta >= 0
+                ? (rxDelta * 8) / elapsedSeconds / 1_000_000
+                : undefined;
+              const outboundMbps = Number.isFinite(txDelta) && txDelta >= 0
+                ? (txDelta * 8) / elapsedSeconds / 1_000_000
+                : undefined;
+
+              setRatesByMac((currentRates) => ({
+                ...currentRates,
+                [mac]: {
+                  diskReadMBps,
+                  diskWriteMBps,
+                  inboundMbps,
+                  outboundMbps,
+                }
+              }));
+            }
+          }
+
+          return {
+            ...previousSamples,
+            [mac]: nextSample,
+          };
+        });
+
         setMetricsByMac(prev => ({ ...prev, [mac]: data }));
       }
 
@@ -401,10 +479,13 @@ export const DeviceList: React.FC = () => {
                                   Remote IPs: {(metricsByMac[device.mac]?.connection?.remote_ips || []).join(', ') || '—'}
                                 </div>
                                 <div style={{ marginTop: '8px', fontSize: '13px' }}>
-                                  Disk I/O: Read {formatBytes(metricsByMac[device.mac]?.disk_io?.read_bytes)} / Write {formatBytes(metricsByMac[device.mac]?.disk_io?.write_bytes)}
+                                  Disk I/O: Read {formatMBps(ratesByMac[device.mac]?.diskReadMBps)} / Write {formatMBps(ratesByMac[device.mac]?.diskWriteMBps)}
                                 </div>
                                 <div style={{ marginTop: '4px', fontSize: '13px' }}>
-                                  Network: RX {formatBytes(metricsByMac[device.mac]?.network?.rx_bytes)} / TX {formatBytes(metricsByMac[device.mac]?.network?.tx_bytes)}
+                                  Network: Inbound {formatMbps(ratesByMac[device.mac]?.inboundMbps)} / Outbound {formatMbps(ratesByMac[device.mac]?.outboundMbps)}
+                                </div>
+                                <div style={{ marginTop: '4px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                  Cumulative: Disk R {formatBytes(metricsByMac[device.mac]?.disk_io?.read_bytes)} / W {formatBytes(metricsByMac[device.mac]?.disk_io?.write_bytes)}; Net RX {formatBytes(metricsByMac[device.mac]?.network?.rx_bytes)} / TX {formatBytes(metricsByMac[device.mac]?.network?.tx_bytes)}
                                 </div>
                                 {!!metricsByMac[device.mac]?.boot_transfer && (
                                   <div style={{ marginTop: '8px', fontSize: '13px' }}>
