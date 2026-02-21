@@ -1226,8 +1226,12 @@ kernel {wimboot_url} || goto windows_failed
 initrd {bcd_url} BCD || goto windows_failed
 initrd {sdi_url} boot.sdi || goto windows_failed
 initrd {wim_url} boot.wim || goto windows_failed
+initrd {startnet_url} startnet.cmd || goto windows_failed
 initrd {startnet_url} Windows/System32/startnet.cmd || goto windows_failed
+initrd {startnet_url} windows/system32/startnet.cmd || goto windows_failed
+initrd {winpeshl_url} winpeshl.ini || goto windows_failed
 initrd {winpeshl_url} Windows/System32/winpeshl.ini || goto windows_failed
+initrd {winpeshl_url} windows/system32/winpeshl.ini || goto windows_failed
 boot || goto windows_failed
 
 :windows_failed

@@ -40,6 +40,11 @@ if [ ! -f /data/tftp/undionly.kpxe ] || [ $(stat -c%s /data/tftp/undionly.kpxe 2
     exit 1
 fi
 
+# Compatibility aliases for PXE stacks that request legacy names.
+cp -f /data/tftp/undionly.kpxe /data/tftp/undionly.0
+cp -f /data/tftp/undionly.kpxe /data/tftp/undionly
+echo "[TFTP] ✓ Compatibility aliases created: undionly.0, undionly"
+
 # ====================================================
 # 2. Create iPXE boot scripts
 # ====================================================
@@ -237,7 +242,7 @@ dhcp-boot=tag:!ipxe,tag:efibc,ipxe.efi,,${BOOT_IP}
 dhcp-boot=tag:!ipxe,tag:efi32,ipxe.efi,,${BOOT_IP}
 
 # PXE boot service discovery (for legacy PXE ROM)
-pxe-service=tag:!ipxe,x86PC,"Netboot Orchestrator",undionly
+pxe-service=tag:!ipxe,x86PC,"Netboot Orchestrator",undionly.kpxe
 pxe-service=tag:!ipxe,x86-64_EFI,"Netboot Orchestrator",ipxe
 pxe-service=tag:!ipxe,BC_EFI,"Netboot Orchestrator",ipxe
 
