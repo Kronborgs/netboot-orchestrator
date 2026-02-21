@@ -180,7 +180,7 @@ for /L %%R in (1,1,60) do (
             goto :done
         )
     )
-    call :sleep_short
+    ping -n 3 127.0.0.1 >nul 2>&1
 )
 
 echo.
@@ -216,12 +216,8 @@ iscsicli QAddTargetPortal %PORTAL% 3260 >nul 2>&1
 iscsicli AddTargetPortal %PORTAL% 3260 >nul 2>&1
 iscsicli QLoginTarget %TARGET% >nul 2>&1
 iscsicli LoginTarget %TARGET% T * * * * * * * * * * * * * * * 0 >nul 2>&1
-call :sleep_short
-wpeutil UpdateBootInfo >nul 2>&1
-exit /b 0
-
-:sleep_short
 ping -n 3 127.0.0.1 >nul 2>&1
+wpeutil UpdateBootInfo >nul 2>&1
 exit /b 0
 
 :trace
@@ -271,7 +267,6 @@ exit /b 0
 set "LOG_URL=%~1"
 where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri $env:LOG_URL -Method Get | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && exit /b 0
 where curl.exe >nul 2>&1 && curl.exe -fsS "%LOG_URL%" >nul 2>&1 && exit /b 0
-where certutil.exe >nul 2>&1 && certutil -urlcache -split -f "%LOG_URL%" "X:\nb-http.tmp" >nul 2>&1 && del /f /q "X:\nb-http.tmp" >nul 2>&1
 exit /b 0
 """
     return PlainTextResponse(script)
