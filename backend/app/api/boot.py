@@ -902,19 +902,31 @@ chain {base}/ipxe/menu
                 f"target={ensure_iso.get('target_name')} san={installer_iso_san_url} reused={ensure_iso.get('reused')}"
             )
         else:
-            installer_iso_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(installer_iso_path, safe='/')}"
-            iso_hook_cmd = (
-                f"sanhook --drive 0xE0 {installer_iso_url} "
-                f"|| sanhook --drive 0x81 {installer_iso_url} "
-                f"|| goto windows_failed"
+            error = ensure_iso.get("error", "unknown error")
+            logger.error(
+                f"Windows install aborted: failed to export installer ISO as iSCSI: "
+                f"path={installer_iso_path} error={error}"
             )
-            iso_info_line = f"echo  Installer media (0xE0/0x81): {installer_iso_path}"
-            installer_log_value = installer_iso_path
-            installer_mode = "http_fallback"
-            logger.warning(
-                f"Windows install failed to export installer ISO as iSCSI, falling back to HTTP sanhook: "
-                f"path={installer_iso_path} error={ensure_iso.get('error')}"
+            db.add_boot_log(
+                mac,
+                "windows_install_media_error",
+                f"Installer media export failed for {installer_iso_path}: {error}"
             )
+            script = f"""#!ipxe
+echo
+echo ================================================
+echo  Windows installer media export failed
+echo ================================================
+echo  ISO: {installer_iso_path}
+echo
+echo  Could not prepare iSCSI media target.
+echo  Check backend logs for tgtd/tgtadm error details.
+echo
+echo  Returning to menu in 10 seconds...
+sleep 10
+chain {base}/ipxe/menu
+"""
+            return PlainTextResponse(script)
     else:
         logger.info("Windows install optional ISO not configured (continuing with WinPE only)")
 

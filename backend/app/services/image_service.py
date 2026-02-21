@@ -140,12 +140,27 @@ class IscsiService:
             "--mode", "logicalunit", "--tid", str(tid),
             "--lun", "1", "--backing-store", str(installer_file_path), "--device-type", "cd",
         ])
+        lun_mode = "cd"
         if not ok:
-            self._run_cmd([
-                "tgtadm", "--lld", "iscsi", "--op", "delete",
-                "--mode", "target", "--tid", str(tid), "--force",
+            logger.warning(
+                f"Installer ISO LUN with device-type cd failed for {target_name} (tid={tid}): {err}. "
+                f"Trying compatibility mode without --device-type."
+            )
+            ok2, _, err2 = self._run_cmd([
+                "tgtadm", "--lld", "iscsi", "--op", "new",
+                "--mode", "logicalunit", "--tid", str(tid),
+                "--lun", "1", "--backing-store", str(installer_file_path),
             ])
-            return {"success": False, "error": f"tgtadm add installer ISO LUN failed: {err}"}
+            if not ok2:
+                self._run_cmd([
+                    "tgtadm", "--lld", "iscsi", "--op", "delete",
+                    "--mode", "target", "--tid", str(tid), "--force",
+                ])
+                return {
+                    "success": False,
+                    "error": f"tgtadm add installer ISO LUN failed (cd: {err}) (compat: {err2})"
+                }
+            lun_mode = "compat"
 
         ok, _, err = self._run_cmd([
             "tgtadm", "--lld", "iscsi", "--op", "bind",
@@ -164,6 +179,7 @@ class IscsiService:
             "target_name": target_name,
             "san_url": f"iscsi:{self.boot_server_ip}:::1:{target_name}",
             "reused": False,
+            "lun_mode": lun_mode,
         }
 
     # ── CRUD operations ─────────────────────────────────────
