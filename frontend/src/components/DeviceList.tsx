@@ -31,6 +31,13 @@ interface DeviceMetrics {
     tx_bytes: number;
     source: string;
   };
+  boot_transfer?: {
+    http_tx_bytes: number;
+    http_requests: number;
+    last_path?: string;
+    last_seen?: string;
+    last_remote_ip?: string;
+  };
   warning?: string;
 }
 
@@ -380,6 +387,22 @@ export const DeviceList: React.FC = () => {
                                 <div style={{ marginTop: '4px', fontSize: '13px' }}>
                                   Network: RX {formatBytes(metricsByMac[device.mac]?.network?.rx_bytes)} / TX {formatBytes(metricsByMac[device.mac]?.network?.tx_bytes)}
                                 </div>
+                                {!!metricsByMac[device.mac]?.boot_transfer && (
+                                  <div style={{ marginTop: '8px', fontSize: '13px' }}>
+                                    WinPE HTTP: TX {formatBytes(metricsByMac[device.mac]?.boot_transfer?.http_tx_bytes)}
+                                    {' | '}Requests {metricsByMac[device.mac]?.boot_transfer?.http_requests ?? 0}
+                                  </div>
+                                )}
+                                {!!metricsByMac[device.mac]?.boot_transfer?.last_path && (
+                                  <div style={{ marginTop: '4px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                    Last file: {metricsByMac[device.mac]?.boot_transfer?.last_path}
+                                  </div>
+                                )}
+                                {!!metricsByMac[device.mac]?.boot_transfer?.last_seen && (
+                                  <div style={{ marginTop: '2px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                    Last transfer: {formatTimestamp(metricsByMac[device.mac]?.boot_transfer?.last_seen)}
+                                  </div>
+                                )}
                                 <div style={{ marginTop: '4px', fontSize: '12px', color: 'var(--text-secondary)' }}>
                                   Sources: disk={metricsByMac[device.mac]?.disk_io?.source || 'unknown'}, net={metricsByMac[device.mac]?.network?.source || 'unknown'}
                                 </div>

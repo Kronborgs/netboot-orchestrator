@@ -89,6 +89,8 @@ wpeutil UpdateBootInfo >nul 2>&1
 
     script = f"""@echo off
 wpeinit
+wpeutil InitializeNetwork >nul 2>&1
+where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{log_url_base}WinPE%20startnet%20started' -Method Get | Out-Null }} catch {{}}" >nul 2>&1
 where curl.exe >nul 2>&1 && curl.exe -fsS "{log_url_base}WinPE%20startnet%20started" >nul 2>&1
 echo.
 echo ================================================
@@ -100,7 +102,7 @@ echo Searching for installer media (auto mode)...
 
 for /L %%R in (1,1,60) do (
     wpeutil UpdateBootInfo >nul 2>&1
-    for %%L in (D E F G H I J K L M N O P Q R S T U V W X Y Z) do (
+    for %%L in (C D E F G H I J K L M N O P Q R S T U V W X Y Z) do (
         if exist %%L:\setup.exe (
             echo Found installer on %%L:\
             call :log_setup %%L
@@ -138,8 +140,7 @@ exit /b 0
 async def winpe_winpeshl_ini():
     """Force WinPE shell flow to launch our startnet script."""
     content = """[LaunchApps]
-%SYSTEMROOT%\\System32\\wpeinit.exe
-%SYSTEMROOT%\\System32\\cmd.exe,/c %SYSTEMROOT%\\System32\\startnet.cmd
+%SYSTEMROOT%\\System32\\startnet.cmd
 """
     return PlainTextResponse(content)
 
@@ -889,10 +890,12 @@ chain {base}/ipxe/menu
         f"san_candidates={san_urls}"
     )
 
-    wimboot_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[0], safe='/')}"
-    bcd_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[1], safe='/')}"
-    sdi_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[2], safe='/')}"
-    wim_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[3], safe='/')}"
+    mac_encoded = quote(mac or "", safe='')
+    mac_qs = f"?mac={mac_encoded}" if mac_encoded else ""
+    wimboot_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[0], safe='/')}{mac_qs}"
+    bcd_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[1], safe='/')}{mac_qs}"
+    sdi_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[2], safe='/')}{mac_qs}"
+    wim_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[3], safe='/')}{mac_qs}"
     startnet_meta = quote(f"{mac}||", safe='')
     startnet_url = f"http://{boot_ip}:8000/api/v1/boot/winpe/startnet.cmd?meta={startnet_meta}"
     winpeshl_url = f"http://{boot_ip}:8000/api/v1/boot/winpe/winpeshl.ini"
@@ -921,6 +924,10 @@ chain {base}/ipxe/menu
         logger.info(f"Windows install optional ISO SAN configured: {installer_iso_san_url}")
     elif installer_iso_path:
         installer_full_path = os_installers_path / installer_iso_path
+        installer_iso_url = (
+            f"http://{boot_ip}:8000/api/v1/os-installers/download/"
+            f"{quote(installer_iso_path, safe='/')}{mac_qs}"
+        )
         ensure_iso = iscsi.ensure_installer_iso_target(installer_iso_path, installer_full_path)
         if ensure_iso.get("success"):
             installer_iso_san_url = ensure_iso.get("san_url", "")
@@ -1232,18 +1239,47 @@ async def get_device_metrics(mac: str, db: Database = Depends(get_db)):
 
     image_id = device.get("image_id")
     if not image_id:
+        transfer = db.get_device_transfer(mac)
         return {
             "mac": mac,
             "name": device.get("name"),
             "image_id": None,
             "linked": False,
             "message": "No iSCSI image linked",
+            "boot_transfer": {
+                "http_tx_bytes": int((transfer or {}).get("http_tx_bytes", 0) or 0),
+                "http_requests": int((transfer or {}).get("http_requests", 0) or 0),
+                "last_path": (transfer or {}).get("last_path", ""),
+                "last_seen": (transfer or {}).get("last_seen", ""),
+                "last_remote_ip": (transfer or {}).get("last_remote_ip", ""),
+            },
         }
 
     iscsi = get_iscsi_service()
     metrics = iscsi.get_image_connection_metrics(image_id)
     if not metrics.get("success"):
         raise HTTPException(status_code=400, detail=metrics.get("error", "Unable to fetch metrics"))
+
+    transfer = db.get_device_transfer(mac)
+    if transfer:
+        metrics["boot_transfer"] = {
+            "http_tx_bytes": int(transfer.get("http_tx_bytes", 0) or 0),
+            "http_requests": int(transfer.get("http_requests", 0) or 0),
+            "last_path": transfer.get("last_path", ""),
+            "last_seen": transfer.get("last_seen", ""),
+            "last_remote_ip": transfer.get("last_remote_ip", ""),
+        }
+
+        if metrics.get("network", {}).get("source") == "unavailable":
+            metrics["network"] = {
+                "rx_bytes": None,
+                "tx_bytes": int(transfer.get("http_tx_bytes", 0) or 0),
+                "source": "http_transfer_aggregate",
+            }
+
+            metrics["warning"] = (
+                "Per-device iSCSI byte counters unavailable; showing MAC-attributed HTTP download bytes instead."
+            )
 
     metrics["mac"] = mac
     metrics["name"] = device.get("name")

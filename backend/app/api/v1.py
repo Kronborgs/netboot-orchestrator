@@ -541,6 +541,8 @@ async def head_os_installer(file_path: str):
 async def download_os_installer(
     file_path: str,
     request: Request,
+    mac: str = Query(""),
+    db: Database = Depends(get_db),
     file_service: FileService = Depends(get_file_service),
 ):
     """Serve OS installer files with HTTP Range support.
@@ -571,6 +573,14 @@ async def download_os_installer(
                     )
                 end = min(end, file_size - 1)
                 content_length = end - start + 1
+                if mac:
+                    db.add_device_transfer(
+                        mac=mac,
+                        protocol="http",
+                        bytes_sent=content_length,
+                        path=file_path,
+                        remote_ip=(request.client.host if request.client else ""),
+                    )
 
                 logger.debug(f"Range request: bytes={start}-{end}/{file_size} for {file_path}")
 
@@ -598,6 +608,14 @@ async def download_os_installer(
                 )
 
         # No Range header -> serve full file
+        if mac:
+            db.add_device_transfer(
+                mac=mac,
+                protocol="http",
+                bytes_sent=file_size,
+                path=file_path,
+                remote_ip=(request.client.host if request.client else ""),
+            )
         return FileResponse(
             full_path,
             filename=full_path.name,

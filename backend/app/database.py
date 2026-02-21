@@ -17,6 +17,7 @@ class Database:
         self.settings_file = self.data_path / "settings.json"
         self.unknown_devices_file = self.data_path / "unknown_devices.json"
         self.boot_logs_file = self.data_path / "boot_logs.json"
+        self.device_transfer_file = self.data_path / "device_transfer.json"
         
         # Initialize files if they don't exist
         self._init_files()
@@ -35,6 +36,8 @@ class Database:
             self._write_json(self.unknown_devices_file, {})
         if not self.boot_logs_file.exists():
             self._write_json(self.boot_logs_file, [])
+        if not self.device_transfer_file.exists():
+            self._write_json(self.device_transfer_file, {})
     
     def _read_json(self, file_path: Path) -> Dict[str, Any]:
         """Read JSON file safely."""
@@ -215,3 +218,64 @@ class Database:
         if mac:
             logs = [l for l in logs if l.get("mac") == mac]
         return list(reversed(logs[-limit:]))
+
+    @staticmethod
+    def _normalize_mac(mac: str) -> str:
+        return (mac or "").strip().lower()
+
+    def add_device_transfer(
+        self,
+        mac: str,
+        protocol: str,
+        bytes_sent: int,
+        path: str = "",
+        remote_ip: str = "",
+    ) -> Dict:
+        """Accumulate per-device transfer counters (best effort telemetry)."""
+        key = self._normalize_mac(mac)
+        if not key:
+            return {}
+
+        data = self._read_json(self.device_transfer_file)
+        if not isinstance(data, dict):
+            data = {}
+
+        existing = data.get(key, {
+            "mac": key,
+            "http_tx_bytes": 0,
+            "http_requests": 0,
+            "iscsi_tx_bytes": 0,
+            "iscsi_requests": 0,
+            "last_path": "",
+            "last_remote_ip": "",
+            "last_protocol": "",
+            "first_seen": self._now_iso(),
+            "last_seen": self._now_iso(),
+        })
+
+        proto = (protocol or "").strip().lower()
+        if proto == "iscsi":
+            existing["iscsi_tx_bytes"] = int(existing.get("iscsi_tx_bytes", 0)) + max(int(bytes_sent or 0), 0)
+            existing["iscsi_requests"] = int(existing.get("iscsi_requests", 0)) + 1
+        else:
+            existing["http_tx_bytes"] = int(existing.get("http_tx_bytes", 0)) + max(int(bytes_sent or 0), 0)
+            existing["http_requests"] = int(existing.get("http_requests", 0)) + 1
+
+        existing["last_path"] = path or existing.get("last_path", "")
+        existing["last_remote_ip"] = remote_ip or existing.get("last_remote_ip", "")
+        existing["last_protocol"] = proto or existing.get("last_protocol", "")
+        existing["last_seen"] = self._now_iso()
+
+        data[key] = existing
+        self._write_json(self.device_transfer_file, data)
+        return existing
+
+    def get_device_transfer(self, mac: str) -> Dict:
+        """Get accumulated transfer counters for a specific device MAC."""
+        key = self._normalize_mac(mac)
+        if not key:
+            return {}
+        data = self._read_json(self.device_transfer_file)
+        if not isinstance(data, dict):
+            return {}
+        return data.get(key, {})
