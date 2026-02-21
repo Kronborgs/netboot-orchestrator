@@ -18,7 +18,7 @@
 
 ### Step 2: Run Deployment
 ```powershell
-cd C:\Users\Kronborgs_LabPC\netboot-orchestrator
+cd C:\Users\...\netboot-orchestrator
 
 .\deploy-to-unraid.ps1 -UnraidHost 192.168.1.50
 ```
