@@ -1,7 +1,7 @@
 # Netboot Orchestrator - Project Guide
 
-**Last Updated:** February 20, 2026  
-**Version:** 2026-02-21-V133  
+**Last Updated:** February 21, 2026  
+**Version:** 2026-02-21-V134  
 **Status:** Fully operational — PXE boot, iSCSI, WebUI, CI/CD all working  
 **Branding:** Designed by Kenneth Kronborg AI Team
 
@@ -14,6 +14,9 @@ A Docker-based PXE/iPXE network boot server running on Unraid NAS. Single all-in
 
 **Current state (V3):**
 - **Everything working** — PXE boot, interactive iPXE menus, OS installer browsing, iSCSI image create/copy/link/boot, WebUI, boot logging
+- **Windows install flow implemented** — iPXE Windows installer select menu, WinPE (`wimboot`) boot, iSCSI system disk attach, installer ISO media attach
+- **WinPE autostart implemented** — backend serves `startnet.cmd` that auto-finds installer media and launches `setup.exe`
+- **OS installer refresh reliability fixed** — folder/file cache invalidates on background refresh so new files appear in WebUI and menus quickly
 - **All-in-one Docker image** published to `ghcr.io/kronborgs/netboot-orchestrator:latest`
 - **CI/CD** via GitHub Actions — builds and pushes on every push to `main`
 - **Unraid template** (`unraid-template.xml`) for one-click install in Community Applications
@@ -111,7 +114,7 @@ FastAPI returns interactive iPXE menu:
     ├─ Create iSCSI → pick size → creates image + links to device → OS menu
     ├─ Link iSCSI → pick image → links to device
     ├─ Boot iSCSI → sanboot iscsi:IP::::IQN
-    └─ Windows Install → sanhook 0x80 iSCSI + wimboot (BCD/boot.sdi/boot.wim)
+    └─ Windows Install → select installer ISO → sanhook system disk + media attach + wimboot + WinPE autostart `setup.exe`
 ```
 
 ### OS Installer Boot Flow

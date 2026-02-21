@@ -4,7 +4,7 @@
 >
 > Production-ready web orchestrator for SD-card-less network boot, disk image management, and automatic device provisioning
 
-[![GitHub Release](https://img.shields.io/badge/Release-2026--02--18--V1-blue?style=flat-square)](https://github.com/Kronborgs/netboot-orchestrator/releases)
+[![GitHub Release](https://img.shields.io/badge/Release-2026--02--21--V133-blue?style=flat-square)](https://github.com/Kronborgs/netboot-orchestrator/releases)
 [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker)](https://ghcr.io/kronborgs/netboot-orchestrator)
 [![Unraid](https://img.shields.io/badge/Unraid-Template-F15A2C?style=flat-square)](unraid-template.xml)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python)](https://www.python.org/)
@@ -20,6 +20,7 @@
 - **Web Dashboard**: Modern React UI for managing devices and disk images
 - **iSCSI Disk Targets**: Dynamically create and assign persistent storage to devices
 - **PXE Network Boot**: Full x86/x64 support via iPXE bootloader
+- **Windows Install Flow**: WinPE via `wimboot` + attached iSCSI system disk + selectable installer ISO media
 - **Smart Device Wizard**: Auto-register unknown devices on first boot
 - **RESTful API**: Complete API for automation and third-party integration
 - **Docker Native**: Production-ready containerized deployment
@@ -29,6 +30,7 @@
 - Image assignment, versioning, and lifecycle management
 - Multi-kernel set support for different boot configurations
 - OS installer catalogs and boot menu generation
+- OS installer folder cache auto-refresh when files are added/changed
 - Device boot flow monitoring and logging
 
 ### 🔧 Technical Stack
@@ -240,7 +242,7 @@ curl http://localhost:8000/api/v1/devices/aa:bb:cc:dd:ee:ff | jq
 ### Inventory (5 Tabs)
 - **Devices**: CRUD for registered boot devices
 - **iSCSI Images**: Create, delete, copy, link/unlink disk images
-- **OS Installers**: File browser + upload for ISOs/IMGs
+- **OS Installers**: File browser + upload for ISOs/IMGs with per-file "Last changed" timestamp
 - **Boot Logs**: Live boot event log (last 500 entries, filterable by MAC)
 - **Device Wizard**: Auto-register unknown devices on first PXE boot
 
@@ -345,6 +347,10 @@ cp .env.example .env
 | `OS_INSTALLERS_PATH` | `/isos` | Path to OS installer ISOs inside container |
 | `IMAGES_PATH` | `/iscsi-images` | Path for iSCSI disk images |
 | `DATA_PATH` | `/data` | Persistent data directory |
+| `WINDOWS_WINPE_PATH` | `winpe` | Relative folder under `OS_INSTALLERS_PATH` with `wimboot`, `BCD`, `boot.sdi`, `boot.wim` |
+| `WINDOWS_OS_INSTALLER_ISO_PATH` | *(empty)* | Optional installer ISO path under `OS_INSTALLERS_PATH` used for WinPE media attach |
+| `WINDOWS_INSTALLER_ISO_SAN_URL` | *(empty)* | Optional pre-existing SAN URL for installer media |
+| `WINDOWS_INSTALLER_ISO_PATH` | *(empty)* | Optional fallback installer ISO path under `OS_INSTALLERS_PATH` |
 | `API_HOST` | `0.0.0.0` | FastAPI bind address |
 | `API_PORT` | `8000` | FastAPI port |
 | `LOG_LEVEL` | `info` | Uvicorn log level |
@@ -549,6 +555,6 @@ If you find this project useful, please consider giving it a star! It helps othe
 
 **Repository**: [Kronborgs/netboot-orchestrator](https://github.com/Kronborgs/netboot-orchestrator)
 
-**Version**: 2026-02-21-V133
+**Version**: 2026-02-21-V134
 
-**Last Updated**: February 17, 2026
+**Last Updated**: February 21, 2026
