@@ -49,21 +49,31 @@ BRANDING = "Netboot Orchestrator is designed by Kenneth Kronborg AI Team"
 
 @router.get("/winpe/startnet.cmd")
 async def winpe_startnet_cmd(
-    iscsi_meta: str = Query(""),
+    meta: str = Query(""),
 ):
     """WinPE startup script that auto-launches Windows setup from installer media."""
+    mac = ""
     portal_ip = ""
     target_iqn = ""
-    if iscsi_meta:
+    if meta:
         try:
-            decoded = iscsi_meta.strip()
-            if "|" in decoded:
-                portal_ip, target_iqn = decoded.split("|", 1)
-                portal_ip = portal_ip.strip()
-                target_iqn = target_iqn.strip()
+            decoded = meta.strip()
+            parts = decoded.split("|", 2)
+            if len(parts) == 3:
+                mac = parts[0].strip()
+                portal_ip = parts[1].strip()
+                target_iqn = parts[2].strip()
         except Exception:
+            mac = ""
             portal_ip = ""
             target_iqn = ""
+
+    boot_ip = _env("BOOT_SERVER_IP", "192.168.1.50")
+    mac_encoded = quote(mac, safe='') if mac else "unknown"
+    log_url_base = (
+        f"http://{boot_ip}:8000/api/v1/boot/log"
+        f"?mac={mac_encoded}&event=winpe_setup_autostart&details="
+    )
 
     iscsi_attach_block = ""
     if portal_ip and target_iqn:
@@ -92,11 +102,13 @@ for /L %%R in (1,1,20) do (
     for %%L in (D E F G H I J K L M N O P Q R S T U V W X Y Z) do (
         if exist %%L:\setup.exe (
             echo Found installer on %%L:\
+            call :log_setup %%L
             %%L:\setup.exe
             goto :done
         )
         if exist %%L:\sources\setup.exe (
             echo Found installer on %%L:\sources\
+            call :log_setup %%L
             %%L:\sources\setup.exe
             goto :done
         )
@@ -110,6 +122,13 @@ echo Opening command prompt for manual troubleshooting.
 cmd.exe
 
 :done
+exit /b 0
+
+:log_setup
+set DRIVE=%1
+where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{log_url_base}Auto%20setup%20started%20from%20drive%20' + $env:DRIVE + '%3A' -Method Get | Out-Null }} catch {{}}" >nul 2>&1
+where curl.exe >nul 2>&1 && curl.exe -fsS "{log_url_base}Auto%20setup%20started%20from%20drive%20%DRIVE%%3A" >nul 2>&1
+exit /b 0
 """
     return PlainTextResponse(script)
 
@@ -863,7 +882,8 @@ chain {base}/ipxe/menu
     bcd_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[1], safe='/')}"
     sdi_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[2], safe='/')}"
     wim_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[3], safe='/')}"
-    startnet_url = f"http://{boot_ip}:8000/api/v1/boot/winpe/startnet.cmd"
+    startnet_meta = quote(f"{mac}||", safe='')
+    startnet_url = f"http://{boot_ip}:8000/api/v1/boot/winpe/startnet.cmd?meta={startnet_meta}"
     iso_hook_cmd = ""
     iso_info_line = ""
     installer_iso_url = ""
@@ -881,10 +901,10 @@ chain {base}/ipxe/menu
         installer_mode = "san_url"
         portal_ip, target_iqn = _parse_iscsi_san_url(installer_iso_san_url)
         if portal_ip and target_iqn:
-            iscsi_meta = quote(f"{portal_ip}|{target_iqn}", safe='')
+            iscsi_meta = quote(f"{mac}|{portal_ip}|{target_iqn}", safe='')
             startnet_url = (
                 f"http://{boot_ip}:8000/api/v1/boot/winpe/startnet.cmd"
-                f"?iscsi_meta={iscsi_meta}"
+                f"?meta={iscsi_meta}"
             )
         logger.info(f"Windows install optional ISO SAN configured: {installer_iso_san_url}")
     elif installer_iso_path:
@@ -907,10 +927,10 @@ chain {base}/ipxe/menu
                 portal_ip = parsed_portal or portal_ip
                 target_iqn = parsed_iqn or target_iqn
             if portal_ip and target_iqn:
-                iscsi_meta = quote(f"{portal_ip}|{target_iqn}", safe='')
+                iscsi_meta = quote(f"{mac}|{portal_ip}|{target_iqn}", safe='')
                 startnet_url = (
                     f"http://{boot_ip}:8000/api/v1/boot/winpe/startnet.cmd"
-                    f"?iscsi_meta={iscsi_meta}"
+                    f"?meta={iscsi_meta}"
                 )
             logger.info(
                 f"Windows install installer ISO exported as iSCSI: path={installer_iso_path} "
