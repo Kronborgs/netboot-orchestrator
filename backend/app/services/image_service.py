@@ -126,9 +126,6 @@ class IscsiService:
 
         target_name = image.get("target_name", f"{self.iqn_prefix}:{image_name}")
         tid = image.get("tid")
-        network_totals = self._read_proc_net_totals()
-        process_io = self._read_proc_self_io()
-
         base_result = {
             "success": True,
             "image_id": image_name,
@@ -141,14 +138,14 @@ class IscsiService:
                 "remote_ips": [],
             },
             "disk_io": {
-                "read_bytes": process_io.get("read_bytes", 0),
-                "write_bytes": process_io.get("write_bytes", 0),
-                "source": "process_io",
+                "read_bytes": None,
+                "write_bytes": None,
+                "source": "unavailable",
             },
             "network": {
-                "rx_bytes": network_totals.get("rx_bytes", 0),
-                "tx_bytes": network_totals.get("tx_bytes", 0),
-                "source": "server_net",
+                "rx_bytes": None,
+                "tx_bytes": None,
+                "source": "unavailable",
             },
         }
 
@@ -184,6 +181,27 @@ class IscsiService:
         if write_bytes is not None:
             base_result["disk_io"]["write_bytes"] = int(write_bytes)
             base_result["disk_io"]["source"] = "target_stats"
+
+        rx_bytes = self._extract_first_int(stdout, [
+            r"rx[_\s-]*bytes\s*[:=]\s*(\d+)",
+            r"receive[_\s-]*bytes\s*[:=]\s*(\d+)",
+        ])
+        tx_bytes = self._extract_first_int(stdout, [
+            r"tx[_\s-]*bytes\s*[:=]\s*(\d+)",
+            r"transmit[_\s-]*bytes\s*[:=]\s*(\d+)",
+        ])
+        if rx_bytes is not None:
+            base_result["network"]["rx_bytes"] = int(rx_bytes)
+            base_result["network"]["source"] = "target_stats"
+        if tx_bytes is not None:
+            base_result["network"]["tx_bytes"] = int(tx_bytes)
+            base_result["network"]["source"] = "target_stats"
+
+        if base_result["network"]["source"] == "unavailable":
+            base_result["warning"] = (
+                (base_result.get("warning", "") + " ").strip() +
+                "Per-device network bytes unavailable from current tgtd output."
+            ).strip()
 
         return base_result
 

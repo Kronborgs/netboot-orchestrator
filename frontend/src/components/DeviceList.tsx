@@ -62,7 +62,8 @@ export const DeviceList: React.FC = () => {
   }, []);
 
   const formatBytes = (bytes?: number): string => {
-    if (!bytes || bytes < 0) return '0 B';
+    if (bytes === undefined || bytes === null || bytes < 0) return '—';
+    if (bytes === 0) return '0 B';
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];
     let value = bytes;
     let idx = 0;
@@ -350,6 +351,9 @@ export const DeviceList: React.FC = () => {
                                 </div>
                                 <div style={{ marginTop: '4px', fontSize: '13px' }}>
                                   Network: RX {formatBytes(metricsByMac[device.mac]?.network?.rx_bytes)} / TX {formatBytes(metricsByMac[device.mac]?.network?.tx_bytes)}
+                                </div>
+                                <div style={{ marginTop: '4px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                  Sources: disk={metricsByMac[device.mac]?.disk_io?.source || 'unknown'}, net={metricsByMac[device.mac]?.network?.source || 'unknown'}
                                 </div>
                                 {metricsByMac[device.mac]?.warning && (
                                   <div style={{ marginTop: '8px', color: 'var(--warning-color)', fontSize: '12px' }}>
