@@ -556,6 +556,6 @@ If you find this project useful, please consider giving it a star! It helps othe
 
 **Repository**: [Kronborgs/netboot-orchestrator](https://github.com/Kronborgs/netboot-orchestrator)
 
-**Version**: 2026-02-21-V149
+**Version**: 2026-02-21-V150
 
 **Last Updated**: February 21, 2026

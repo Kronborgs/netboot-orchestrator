@@ -48,6 +48,12 @@ interface DeviceLog {
   timestamp: string;
 }
 
+interface WinpeLogFile {
+  name: string;
+  size_bytes: number;
+  modified_at: number;
+}
+
 export const DeviceList: React.FC = () => {
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,6 +62,7 @@ export const DeviceList: React.FC = () => {
   const [expandedMac, setExpandedMac] = useState<string | null>(null);
   const [metricsByMac, setMetricsByMac] = useState<Record<string, DeviceMetrics>>({});
   const [logsByMac, setLogsByMac] = useState<Record<string, DeviceLog[]>>({});
+  const [winpeLogsByMac, setWinpeLogsByMac] = useState<Record<string, WinpeLogFile[]>>({});
   const [detailsLoadingByMac, setDetailsLoadingByMac] = useState<Record<string, boolean>>({});
   const [formData, setFormData] = useState({
     mac: '',
@@ -178,6 +185,7 @@ export const DeviceList: React.FC = () => {
       ];
       if (includeLogs) {
         requests.push(apiFetch(`/api/v1/boot/logs?mac=${encodeURIComponent(mac)}&limit=20`));
+        requests.push(apiFetch(`/api/v1/boot/winpe/logs?mac=${encodeURIComponent(mac)}`));
       }
 
       const responses = await Promise.all(requests);
@@ -192,9 +200,19 @@ export const DeviceList: React.FC = () => {
         const logsData = await responses[1].json();
         setLogsByMac(prev => ({ ...prev, [mac]: logsData || [] }));
       }
+
+      if (includeLogs && responses[2] && responses[2].ok) {
+        const filesData = await responses[2].json();
+        setWinpeLogsByMac(prev => ({ ...prev, [mac]: filesData || [] }));
+      }
     } catch (err) {
       console.error('Failed to fetch device details', err);
     }
+  };
+
+  const buildWinpeDownloadUrl = (mac: string, name: string): string => {
+    const base = `${window.location.protocol}//${window.location.hostname}:8000`;
+    return `${base}/api/v1/boot/winpe/logs/download?mac=${encodeURIComponent(mac)}&name=${encodeURIComponent(name)}`;
   };
 
   const toggleDetails = async (mac: string) => {
@@ -204,7 +222,7 @@ export const DeviceList: React.FC = () => {
     }
 
     setExpandedMac(mac);
-    if (metricsByMac[mac] && logsByMac[mac]) {
+    if (metricsByMac[mac] && logsByMac[mac] && winpeLogsByMac[mac]) {
       return;
     }
 
@@ -424,6 +442,34 @@ export const DeviceList: React.FC = () => {
 
                           <div style={{ background: 'var(--bg-secondary)', padding: '12px', borderRadius: '8px' }}>
                             <div style={{ fontWeight: 600, marginBottom: '8px' }}>Device Logs (MAC)</div>
+                            {(winpeLogsByMac[device.mac] || []).length > 0 && (
+                              <div style={{ marginBottom: '10px', paddingBottom: '10px', borderBottom: '1px solid var(--border-color)' }}>
+                                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                                  WinPE log files
+                                </div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                  {(winpeLogsByMac[device.mac] || []).map((file) => (
+                                    <a
+                                      key={file.name}
+                                      href={buildWinpeDownloadUrl(device.mac, file.name)}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="btn-small"
+                                      style={{
+                                        background: 'var(--primary-blue)',
+                                        color: 'white',
+                                        border: 'none',
+                                        padding: '4px 8px',
+                                        fontSize: '12px',
+                                        textDecoration: 'none'
+                                      }}
+                                    >
+                                      Download {file.name} ({formatBytes(file.size_bytes)})
+                                    </a>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                             {(logsByMac[device.mac] || []).length === 0 ? (
                               <div style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>No logs for this device.</div>
                             ) : (

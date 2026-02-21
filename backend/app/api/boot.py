@@ -15,8 +15,8 @@ Menu structure:
   └── Reboot
 """
 
-from fastapi import APIRouter, Depends, Query, HTTPException
-from fastapi.responses import PlainTextResponse
+from fastapi import APIRouter, Depends, Query, HTTPException, Request
+from fastapi.responses import PlainTextResponse, FileResponse
 from typing import Optional
 from pathlib import Path
 from urllib.parse import quote
@@ -74,6 +74,10 @@ async def winpe_startnet_cmd(
         f"http://{boot_ip}:8000/api/v1/boot/log"
         f"?mac={mac_encoded}&event=winpe_setup_autostart&details="
     )
+    setupact_upload_url = (
+        f"http://{boot_ip}:8000/api/v1/boot/winpe/logs/upload"
+        f"?mac={mac_encoded}&name=setupact.log"
+    )
 
     iscsi_attach_block = ""
     if portal_ip and target_iqn:
@@ -107,13 +111,21 @@ for /L %%R in (1,1,60) do (
         if exist %%L:\setup.exe (
             echo Found installer on %%L:\
             call :log_setup %%L
-            start "" %%L:\setup.exe /DynamicUpdate Disable
+            call :upload_setupact
+            start /wait "" %%L:\setup.exe /DynamicUpdate Disable
+            set SETUP_EXIT=!errorlevel!
+            call :upload_setupact
+            call :log_setup_exit !SETUP_EXIT!
             goto :done
         )
         if exist %%L:\sources\setup.exe (
             echo Found installer on %%L:\sources\
             call :log_setup %%L
-            start "" %%L:\sources\setup.exe /DynamicUpdate Disable
+            call :upload_setupact
+            start /wait "" %%L:\sources\setup.exe /DynamicUpdate Disable
+            set SETUP_EXIT=!errorlevel!
+            call :upload_setupact
+            call :log_setup_exit !SETUP_EXIT!
             goto :done
         )
     )
@@ -122,6 +134,7 @@ for /L %%R in (1,1,60) do (
 
 echo.
 echo No installer media with setup.exe found.
+call :upload_setupact
 echo Opening command prompt for manual troubleshooting.
 cmd.exe
 
@@ -132,6 +145,23 @@ exit /b 0
 set DRIVE=%1
 where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{log_url_base}Auto%20setup%20started%20from%20drive%20' + $env:DRIVE + '%3A' -Method Get | Out-Null }} catch {{}}" >nul 2>&1
 where curl.exe >nul 2>&1 && curl.exe -fsS "{log_url_base}Auto%20setup%20started%20from%20drive%20%DRIVE%%3A" >nul 2>&1
+exit /b 0
+
+:log_setup_exit
+set EXIT_CODE=%1
+where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{log_url_base}Setup%20process%20exited%20with%20code%20' + $env:EXIT_CODE -Method Get | Out-Null }} catch {{}}" >nul 2>&1
+where curl.exe >nul 2>&1 && curl.exe -fsS "{log_url_base}Setup%20process%20exited%20with%20code%20%EXIT_CODE%" >nul 2>&1
+exit /b 0
+
+:upload_setupact
+set SETUPACT_PATH=
+for %%P in ("X:\Windows\Panther\setupact.log" "X:\$WINDOWS.~BT\Sources\Panther\setupact.log" "C:\$WINDOWS.~BT\Sources\Panther\setupact.log" "C:\Windows\Panther\setupact.log") do (
+    if exist %%~P set SETUPACT_PATH=%%~P
+)
+if not defined SETUPACT_PATH exit /b 0
+where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{setupact_upload_url}' -Method Put -InFile $env:SETUPACT_PATH | Out-Null }} catch {{}}" >nul 2>&1
+where curl.exe >nul 2>&1 && curl.exe -fsS -X PUT --data-binary "@%SETUPACT_PATH%" "{setupact_upload_url}" >nul 2>&1
+where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{log_url_base}setupact.log%20uploaded%20from%20' + ($env:SETUPACT_PATH -replace ':','%3A' -replace '\\','%5C') -Method Get | Out-Null }} catch {{}}" >nul 2>&1
 exit /b 0
 """
     return PlainTextResponse(script)
@@ -248,6 +278,75 @@ def _parse_iscsi_san_url(san_url: str) -> tuple[str, str]:
     portal_ip = parts[0].strip() if parts else ""
     target_iqn = parts[-1].strip() if len(parts) >= 2 else ""
     return portal_ip, target_iqn
+
+
+def _winpe_logs_root() -> Path:
+    return Path(_env("WINPE_LOGS_PATH", "/data/winpe-logs"))
+
+
+def _mac_log_dir(mac: str) -> Path:
+    normalized = _normalize_mac(mac)
+    if len(normalized) != 12:
+        raise HTTPException(status_code=400, detail="Invalid MAC")
+    dashed = "-".join(normalized[i:i+2] for i in range(0, 12, 2))
+    return _winpe_logs_root() / dashed
+
+
+@router.put("/winpe/logs/upload")
+async def upload_winpe_log(
+    request: Request,
+    mac: str = Query(...),
+    name: str = Query("setupact.log"),
+    db: Database = Depends(get_db),
+):
+    """Upload WinPE log content (e.g. setupact.log) for a specific MAC."""
+    if not name or Path(name).name != name:
+        raise HTTPException(status_code=400, detail="Invalid log filename")
+
+    content = await request.body()
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty log content")
+
+    log_dir = _mac_log_dir(mac)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    target_file = log_dir / name
+    target_file.write_bytes(content)
+
+    db.add_boot_log(mac, "winpe_log_upload", f"{name} uploaded ({len(content)} bytes)")
+    return {"success": True, "name": name, "size_bytes": len(content)}
+
+
+@router.get("/winpe/logs")
+async def list_winpe_logs(mac: str = Query(...)):
+    """List uploaded WinPE logs for a specific MAC."""
+    log_dir = _mac_log_dir(mac)
+    if not log_dir.exists():
+        return []
+
+    files = []
+    for entry in sorted(log_dir.glob("*"), key=lambda p: p.stat().st_mtime, reverse=True):
+        if not entry.is_file():
+            continue
+        stat = entry.stat()
+        files.append({
+            "name": entry.name,
+            "size_bytes": stat.st_size,
+            "modified_at": stat.st_mtime,
+        })
+    return files
+
+
+@router.get("/winpe/logs/download")
+async def download_winpe_log(mac: str = Query(...), name: str = Query("setupact.log")):
+    """Download a WinPE log file for a specific MAC."""
+    if not name or Path(name).name != name:
+        raise HTTPException(status_code=400, detail="Invalid log filename")
+
+    target_file = _mac_log_dir(mac) / name
+    if not target_file.exists() or not target_file.is_file():
+        raise HTTPException(status_code=404, detail="Log file not found")
+
+    return FileResponse(path=target_file, filename=f"{_normalize_mac(mac)}-{name}", media_type="text/plain")
 
 # =====================================================================
 #  MAIN BOOT MENU
