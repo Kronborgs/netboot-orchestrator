@@ -48,9 +48,27 @@ BRANDING = "Netboot Orchestrator is designed by Kenneth Kronborg AI Team"
 
 
 @router.get("/winpe/startnet.cmd")
-async def winpe_startnet_cmd():
-        """WinPE startup script that auto-launches Windows setup from mounted installer media."""
-        script = r"""@echo off
+async def winpe_startnet_cmd(
+    portal_ip: str = Query(""),
+    target_iqn: str = Query(""),
+):
+    """WinPE startup script that auto-launches Windows setup from installer media."""
+    portal_ip = portal_ip.strip()
+    target_iqn = target_iqn.strip()
+
+    iscsi_attach_block = ""
+    if portal_ip and target_iqn:
+        iscsi_attach_block = f"""
+echo Attempting WinPE iSCSI attach for installer media...
+iscsicli QAddTargetPortal {portal_ip} 3260 >nul 2>&1
+iscsicli AddTargetPortal {portal_ip} 3260 >nul 2>&1
+iscsicli QLoginTarget {target_iqn} >nul 2>&1
+iscsicli LoginTarget {target_iqn} T * * * * * * * * * * * * * * * 0 >nul 2>&1
+timeout /t 3 >nul
+wpeutil UpdateBootInfo >nul 2>&1
+"""
+
+    script = f"""@echo off
 wpeinit
 echo.
 echo ================================================
@@ -58,10 +76,17 @@ echo  Netboot Orchestrator - Windows Setup Autostart
 echo ================================================
 echo Searching for installer media...
 
+{iscsi_attach_block}
+
 for %%L in (D E F G H I J K L M N O P Q R S T U V W X Y Z) do (
     if exist %%L:\setup.exe (
         echo Found installer on %%L:\
         start "" %%L:\setup.exe
+        goto :done
+    )
+    if exist %%L:\sources\setup.exe (
+        echo Found installer on %%L:\sources\
+        start "" %%L:\sources\setup.exe
         goto :done
     )
 )
@@ -73,7 +98,7 @@ cmd.exe
 
 :done
 """
-        return PlainTextResponse(script)
+    return PlainTextResponse(script)
 
 
 def _ascii_safe(text: str) -> str:
@@ -163,6 +188,21 @@ def _build_iscsi_urls(boot_ip: str, target_name: str) -> list[str]:
             unique.append(url)
             seen.add(url)
     return unique
+
+
+def _parse_iscsi_san_url(san_url: str) -> tuple[str, str]:
+    """Parse iPXE iSCSI SAN URL into (portal_ip, target_iqn)."""
+    if not san_url:
+        return "", ""
+
+    raw = san_url.strip()
+    if raw.startswith("iscsi:"):
+        raw = raw[len("iscsi:"):]
+
+    parts = raw.split(":")
+    portal_ip = parts[0].strip() if parts else ""
+    target_iqn = parts[-1].strip() if len(parts) >= 2 else ""
+    return portal_ip, target_iqn
 
 # =====================================================================
 #  MAIN BOOT MENU
@@ -826,6 +866,12 @@ chain {base}/ipxe/menu
         iso_info_line = f"echo  Installer media (0xE0/0x81): {installer_iso_san_url}"
         installer_log_value = installer_iso_san_url
         installer_mode = "san_url"
+        portal_ip, target_iqn = _parse_iscsi_san_url(installer_iso_san_url)
+        if portal_ip and target_iqn:
+            startnet_url = (
+                f"http://{boot_ip}:8000/api/v1/boot/winpe/startnet.cmd"
+                f"?portal_ip={quote(portal_ip, safe='')}&target_iqn={quote(target_iqn, safe='')}"
+            )
         logger.info(f"Windows install optional ISO SAN configured: {installer_iso_san_url}")
     elif installer_iso_path:
         installer_full_path = os_installers_path / installer_iso_path
@@ -840,6 +886,17 @@ chain {base}/ipxe/menu
             iso_info_line = f"echo  Installer media (0xE0/0x81): {installer_iso_path}"
             installer_log_value = installer_iso_path
             installer_mode = "iscsi_export"
+            target_iqn = ensure_iso.get("target_name", "")
+            portal_ip = boot_ip
+            if installer_iso_san_url:
+                parsed_portal, parsed_iqn = _parse_iscsi_san_url(installer_iso_san_url)
+                portal_ip = parsed_portal or portal_ip
+                target_iqn = parsed_iqn or target_iqn
+            if portal_ip and target_iqn:
+                startnet_url = (
+                    f"http://{boot_ip}:8000/api/v1/boot/winpe/startnet.cmd"
+                    f"?portal_ip={quote(portal_ip, safe='')}&target_iqn={quote(target_iqn, safe='')}"
+                )
             logger.info(
                 f"Windows install installer ISO exported as iSCSI: path={installer_iso_path} "
                 f"target={ensure_iso.get('target_name')} san={installer_iso_san_url} reused={ensure_iso.get('reused')}"
