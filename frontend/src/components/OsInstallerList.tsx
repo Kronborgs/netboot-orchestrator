@@ -147,6 +147,13 @@ export const OsInstallerList: React.FC = () => {
     }
   };
 
+  const formatDateTime = (value?: string): string => {
+    if (!value) return 'Unknown';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return 'Unknown';
+    return parsed.toLocaleString();
+  };
+
   return (
     <div className="os-installer-list">
       <div className="card mb-3">
@@ -308,6 +315,11 @@ export const OsInstallerList: React.FC = () => {
                       {item.size_display}
                       {item.type === 'folder' && item.has_children && ' • Click to open'}
                     </div>
+                    {item.type === 'file' && (
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                        Last changed: {formatDateTime(item.modified_at || item.created_at)}
+                      </div>
+                    )}
                   </div>
                 </div>
                 {item.type === 'file' && (
