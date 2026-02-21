@@ -748,12 +748,12 @@ echo  Target:     {iscsi.iqn_prefix}:{image_name}
 echo  Server:     {iscsi.boot_server_ip}
 echo
 echo  The image has been linked to this device.
-echo  Loading OS Installers menu...
+    echo  Loading Windows installer selection...
 echo
 echo ================================================
 echo
-prompt Press any key to continue to OS Installers...
-chain {base}/ipxe/os-menu
+    prompt Press any key to continue to Windows Install...
+    chain {base}/ipxe/windows-select?mac={quote(mac, safe='')} || chain {base}/ipxe/menu
 """
     else:
         error = result.get("error", "Unknown error")
