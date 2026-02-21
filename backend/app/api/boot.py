@@ -800,7 +800,7 @@ chain {base}/ipxe/menu
     target_name = device_image.get("target_name", f"{iscsi.iqn_prefix}:{device_image['id']}")
     san_urls = _build_iscsi_urls(boot_ip, target_name)
     san_url = san_urls[0]
-    sanhook_cmd = " || ".join([f"sanhook --drive 0x80 --keep {url}" for url in san_urls]) + " || goto windows_failed"
+    sanhook_cmd = " || ".join([f"sanhook --drive 0x80 {url}" for url in san_urls]) + " || goto windows_failed"
     logger.info(
         f"Windows install image resolved: mac={mac} image_id={device_image.get('id')} target={target_name} "
         f"san_candidates={san_urls}"
@@ -819,8 +819,8 @@ chain {base}/ipxe/menu
 
     if installer_iso_san_url:
         iso_hook_cmd = (
-            f"sanhook --drive 0xE0 --keep {installer_iso_san_url} "
-            f"|| sanhook --drive 0x81 --keep {installer_iso_san_url} "
+            f"sanhook --drive 0xE0 {installer_iso_san_url} "
+            f"|| sanhook --drive 0x81 {installer_iso_san_url} "
             f"|| goto windows_failed"
         )
         iso_info_line = f"echo  Installer media (0xE0/0x81): {installer_iso_san_url}"
@@ -833,8 +833,8 @@ chain {base}/ipxe/menu
         if ensure_iso.get("success"):
             installer_iso_san_url = ensure_iso.get("san_url", "")
             iso_hook_cmd = (
-                f"sanhook --drive 0xE0 --keep {installer_iso_san_url} "
-                f"|| sanhook --drive 0x81 --keep {installer_iso_san_url} "
+                f"sanhook --drive 0xE0 {installer_iso_san_url} "
+                f"|| sanhook --drive 0x81 {installer_iso_san_url} "
                 f"|| goto windows_failed"
             )
             iso_info_line = f"echo  Installer media (0xE0/0x81): {installer_iso_path}"
@@ -847,8 +847,8 @@ chain {base}/ipxe/menu
         else:
             installer_iso_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(installer_iso_path, safe='/')}"
             iso_hook_cmd = (
-                f"sanhook --drive 0xE0 --keep {installer_iso_url} "
-                f"|| sanhook --drive 0x81 --keep {installer_iso_url} "
+                f"sanhook --drive 0xE0 {installer_iso_url} "
+                f"|| sanhook --drive 0x81 {installer_iso_url} "
                 f"|| goto windows_failed"
             )
             iso_info_line = f"echo  Installer media (0xE0/0x81): {installer_iso_path}"
@@ -874,8 +874,8 @@ chain {base}/ipxe/menu
 
         if installer_iso_san_url:
             iso_attach_cmd = (
-                f"sanhook --drive 0xE0 --keep {installer_iso_san_url} "
-                f"|| sanhook --drive 0x81 --keep {installer_iso_san_url} "
+                f"sanhook --drive 0xE0 {installer_iso_san_url} "
+                f"|| sanhook --drive 0x81 {installer_iso_san_url} "
                 f"|| goto windows_failed"
             )
             iso_boot_cmd = "sanboot --drive 0xE0 || sanboot --drive 0x81 || goto windows_failed"
