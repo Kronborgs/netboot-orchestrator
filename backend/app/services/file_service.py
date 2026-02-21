@@ -56,6 +56,15 @@ class FileService:
                 "storage": storage_data,
                 "updated_at": time.time(),
             }
+            folder_prefix_os = f"{key}::os::folder::"
+            folder_prefix_images = f"{key}::images::folder::"
+            keys_to_remove = [
+                cache_key
+                for cache_key in cls._CACHE.keys()
+                if cache_key.startswith(folder_prefix_os) or cache_key.startswith(folder_prefix_images)
+            ]
+            for cache_key in keys_to_remove:
+                cls._CACHE.pop(cache_key, None)
 
     def _trigger_async_refresh(self) -> None:
         key = self._cache_key()
@@ -348,10 +357,14 @@ class FileService:
         base_path = self.images_path if is_images else self.os_installers_path
 
         cache_key = f"{self._cache_key()}::{'images' if is_images else 'os'}::folder::{folder_path}"
+        now = time.time()
         with self._CACHE_LOCK:
             cached = self._CACHE.get(cache_key)
-        if cached:
-            return cached.get("data", {})
+            if cached:
+                age = now - cached.get("updated_at", 0)
+                if age <= self._CACHE_TTL_SECONDS:
+                    return cached.get("data", {})
+                self._CACHE.pop(cache_key, None)
         
         if folder_path:
             full_path = base_path / folder_path
