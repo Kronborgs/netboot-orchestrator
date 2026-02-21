@@ -470,6 +470,11 @@ export const DeviceList: React.FC = () => {
                                 </div>
                               </div>
                             )}
+                            {(winpeLogsByMac[device.mac] || []).length === 0 && (
+                              <div style={{ marginBottom: '10px', paddingBottom: '10px', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: '12px' }}>
+                                WinPE logs not uploaded yet (setupact.log will appear here after setup starts/exits).
+                              </div>
+                            )}
                             {(logsByMac[device.mac] || []).length === 0 ? (
                               <div style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>No logs for this device.</div>
                             ) : (

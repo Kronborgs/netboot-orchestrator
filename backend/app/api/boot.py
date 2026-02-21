@@ -55,11 +55,19 @@ async def winpe_startnet_cmd(
     mac = ""
     portal_ip = ""
     target_iqn = ""
+    system_portal_ip = ""
+    system_target_iqn = ""
     if meta:
         try:
             decoded = meta.strip()
-            parts = decoded.split("|", 2)
-            if len(parts) == 3:
+            parts = decoded.split("|")
+            if len(parts) >= 5:
+                mac = parts[0].strip()
+                portal_ip = parts[1].strip()
+                target_iqn = parts[2].strip()
+                system_portal_ip = parts[3].strip()
+                system_target_iqn = parts[4].strip()
+            elif len(parts) == 3:
                 mac = parts[0].strip()
                 portal_ip = parts[1].strip()
                 target_iqn = parts[2].strip()
@@ -67,6 +75,8 @@ async def winpe_startnet_cmd(
             mac = ""
             portal_ip = ""
             target_iqn = ""
+            system_portal_ip = ""
+            system_target_iqn = ""
 
     boot_ip = _env("BOOT_SERVER_IP", "192.168.1.50")
     mac_encoded = quote(mac, safe='') if mac else "unknown"
@@ -79,17 +89,27 @@ async def winpe_startnet_cmd(
         f"?mac={mac_encoded}&name=setupact.log"
     )
 
-    iscsi_attach_block = ""
-    if portal_ip and target_iqn:
-        iscsi_attach_block = f"""
-echo Attempting WinPE iSCSI attach for installer media...
-iscsicli QAddTargetPortal {portal_ip} 3260 >nul 2>&1
-iscsicli AddTargetPortal {portal_ip} 3260 >nul 2>&1
-iscsicli QLoginTarget {target_iqn} >nul 2>&1
-iscsicli LoginTarget {target_iqn} T * * * * * * * * * * * * * * * 0 >nul 2>&1
-timeout /t 3 >nul
-wpeutil UpdateBootInfo >nul 2>&1
-"""
+    iscsi_attach_block = """
+set INSTALLER_PORTAL={installer_portal}
+set INSTALLER_TARGET={installer_target}
+set SYSTEM_PORTAL={system_portal}
+set SYSTEM_TARGET={system_target}
+
+if not "%SYSTEM_TARGET%"=="" (
+    echo Attempting WinPE iSCSI attach for system disk...
+    call :attach_iscsi "%SYSTEM_PORTAL%" "%SYSTEM_TARGET%"
+)
+
+if not "%INSTALLER_TARGET%"=="" (
+    echo Attempting WinPE iSCSI attach for installer media...
+    call :attach_iscsi "%INSTALLER_PORTAL%" "%INSTALLER_TARGET%"
+)
+""".format(
+        installer_portal=portal_ip,
+        installer_target=target_iqn,
+        system_portal=system_portal_ip,
+        system_target=system_target_iqn,
+    )
 
     script = f"""@echo off
 setlocal EnableExtensions EnableDelayedExpansion
@@ -104,6 +124,26 @@ echo ================================================
 echo Searching for installer media (auto mode)...
 
 {iscsi_attach_block}
+
+if exist E:\setup.exe (
+    call :log_setup E
+    call :upload_setupact
+    start /wait "" E:\setup.exe /DynamicUpdate Disable
+    set SETUP_EXIT=!errorlevel!
+    call :upload_setupact
+    call :log_setup_exit !SETUP_EXIT!
+    goto :done
+)
+
+if exist E:\sources\setup.exe (
+    call :log_setup E
+    call :upload_setupact
+    start /wait "" E:\sources\setup.exe /DynamicUpdate Disable
+    set SETUP_EXIT=!errorlevel!
+    call :upload_setupact
+    call :log_setup_exit !SETUP_EXIT!
+    goto :done
+)
 
 for /L %%R in (1,1,60) do (
     wpeutil UpdateBootInfo >nul 2>&1
@@ -145,6 +185,19 @@ exit /b 0
 set DRIVE=%1
 where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{log_url_base}Auto%20setup%20started%20from%20drive%20' + $env:DRIVE + '%3A' -Method Get | Out-Null }} catch {{}}" >nul 2>&1
 where curl.exe >nul 2>&1 && curl.exe -fsS "{log_url_base}Auto%20setup%20started%20from%20drive%20%DRIVE%%3A" >nul 2>&1
+exit /b 0
+
+:attach_iscsi
+set PORTAL=%~1
+set TARGET=%~2
+if "%PORTAL%"=="" set PORTAL={boot_ip}
+if "%TARGET%"=="" exit /b 0
+iscsicli QAddTargetPortal %PORTAL% 3260 >nul 2>&1
+iscsicli AddTargetPortal %PORTAL% 3260 >nul 2>&1
+iscsicli QLoginTarget %TARGET% >nul 2>&1
+iscsicli LoginTarget %TARGET% T * * * * * * * * * * * * * * * 0 >nul 2>&1
+timeout /t 2 >nul
+wpeutil UpdateBootInfo >nul 2>&1
 exit /b 0
 
 :log_setup_exit
@@ -872,6 +925,7 @@ chain {base}/ipxe/menu
 async def boot_ipxe_windows_install(
     mac: str = Query(""),
     installer: str = Query(""),
+    request: Request = None,
     db: Database = Depends(get_db),
 ):
     """Boot Windows installer via WinPE/wimboot while attaching linked iSCSI disk."""
@@ -984,6 +1038,7 @@ chain {base}/ipxe/menu
     target_name = device_image.get("target_name", f"{iscsi.iqn_prefix}:{device_image['id']}")
     san_urls = _build_iscsi_urls(boot_ip, target_name)
     san_url = san_urls[0]
+    system_portal_ip, system_target_iqn = _parse_iscsi_san_url(san_url)
     sanhook_cmd = " || ".join([f"sanhook --drive 0x80 {url}" for url in san_urls]) + " || goto windows_failed"
     logger.info(
         f"Windows install image resolved: mac={mac} image_id={device_image.get('id')} target={target_name} "
@@ -996,8 +1051,8 @@ chain {base}/ipxe/menu
     bcd_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[1], safe='/')}{mac_qs}"
     sdi_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[2], safe='/')}{mac_qs}"
     wim_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[3], safe='/')}{mac_qs}"
-    startnet_meta = quote(f"{mac}||", safe='')
-    startnet_url = f"http://{boot_ip}:8000/api/v1/boot/winpe/startnet.cmd?meta={startnet_meta}"
+    installer_meta_portal = ""
+    installer_meta_iqn = ""
     winpeshl_url = f"http://{boot_ip}:8000/api/v1/boot/winpe/winpeshl.ini"
     iso_hook_cmd = ""
     iso_info_line = ""
@@ -1016,11 +1071,8 @@ chain {base}/ipxe/menu
         installer_mode = "san_url"
         portal_ip, target_iqn = _parse_iscsi_san_url(installer_iso_san_url)
         if portal_ip and target_iqn:
-            iscsi_meta = quote(f"{mac}|{portal_ip}|{target_iqn}", safe='')
-            startnet_url = (
-                f"http://{boot_ip}:8000/api/v1/boot/winpe/startnet.cmd"
-                f"?meta={iscsi_meta}"
-            )
+            installer_meta_portal = portal_ip
+            installer_meta_iqn = target_iqn
         logger.info(f"Windows install optional ISO SAN configured: {installer_iso_san_url}")
     elif installer_iso_path:
         installer_full_path = os_installers_path / installer_iso_path
@@ -1046,11 +1098,8 @@ chain {base}/ipxe/menu
                 portal_ip = parsed_portal or portal_ip
                 target_iqn = parsed_iqn or target_iqn
             if portal_ip and target_iqn:
-                iscsi_meta = quote(f"{mac}|{portal_ip}|{target_iqn}", safe='')
-                startnet_url = (
-                    f"http://{boot_ip}:8000/api/v1/boot/winpe/startnet.cmd"
-                    f"?meta={iscsi_meta}"
-                )
+                installer_meta_portal = portal_ip
+                installer_meta_iqn = target_iqn
             logger.info(
                 f"Windows install installer ISO exported as iSCSI: path={installer_iso_path} "
                 f"target={ensure_iso.get('target_name')} san={installer_iso_san_url} reused={ensure_iso.get('reused')}"
@@ -1087,6 +1136,11 @@ chain {base}/ipxe/menu
     logger.info(
         f"Windows install URLs: wimboot={wimboot_url} bcd={bcd_url} sdi={sdi_url} wim={wim_url}"
     )
+    startnet_meta = quote(
+        f"{mac}|{installer_meta_portal}|{installer_meta_iqn}|{system_portal_ip}|{system_target_iqn}",
+        safe=''
+    )
+    startnet_url = f"http://{boot_ip}:8000/api/v1/boot/winpe/startnet.cmd?meta={startnet_meta}"
 
     if missing and has_iso_fallback:
         db.add_boot_log(
@@ -1144,7 +1198,8 @@ chain {base}/ipxe/menu
     db.add_boot_log(
         mac,
         "windows_install",
-        f"WinPE install boot via {target_name} (normalized_mac={normalized_mac}); installer={installer_log_value}; mode={installer_mode}"
+        f"WinPE install boot via {target_name} (normalized_mac={normalized_mac}); installer={installer_log_value}; mode={installer_mode}; startnet_meta=installer:{installer_meta_iqn or 'none'} system:{system_target_iqn or 'none'}",
+        request.client.host if request and request.client else "",
     )
 
     script = f"""#!ipxe
@@ -1362,6 +1417,7 @@ async def get_device_metrics(mac: str, db: Database = Depends(get_db)):
 
     transfer = db.get_device_transfer(mac)
     if transfer:
+        fallback_remote_ip = (transfer.get("last_remote_ip") or "").strip()
         metrics["boot_transfer"] = {
             "http_tx_bytes": int(transfer.get("http_tx_bytes", 0) or 0),
             "http_requests": int(transfer.get("http_requests", 0) or 0),
@@ -1369,6 +1425,13 @@ async def get_device_metrics(mac: str, db: Database = Depends(get_db)):
             "last_seen": transfer.get("last_seen", ""),
             "last_remote_ip": transfer.get("last_remote_ip", ""),
         }
+
+        connection = metrics.get("connection") or {}
+        existing_ips = list(connection.get("remote_ips") or [])
+        if fallback_remote_ip and fallback_remote_ip not in existing_ips:
+            existing_ips.append(fallback_remote_ip)
+            connection["remote_ips"] = existing_ips
+            metrics["connection"] = connection
 
         if metrics.get("network", {}).get("source") == "unavailable":
             metrics["network"] = {
