@@ -117,9 +117,9 @@ if not "%INSTALLER_TARGET%"=="" (
 
     script = f"""@echo off
 setlocal EnableExtensions EnableDelayedExpansion
-set TRACE_FILE=X:\Windows\Temp\netboot-startnet.log
-if not exist X:\Windows\Temp mkdir X:\Windows\Temp >nul 2>&1
-echo [startnet] begin %DATE% %TIME% > %TRACE_FILE%
+set TRACE_FILE=%TEMP%\netboot-startnet.log
+set TRACE_ENABLED=1
+2>nul (echo [startnet] begin %DATE% %TIME% > "%TRACE_FILE%") || set TRACE_ENABLED=
 wpeinit
 wpeutil InitializeNetwork >nul 2>&1
 call :trace wpeinit completed
@@ -158,8 +158,8 @@ for /L %%R in (1,1,60) do (
     wpeutil UpdateBootInfo >nul 2>&1
     for %%L in (C D E F G H I J K L M N O P Q R S T U V W X Y Z) do (
         if exist %%L:\setup.exe (
-            echo Found installer on %%L:\
-            call :trace found setup.exe on %%L:\
+            echo Found installer on %%L:
+            call :trace found setup.exe on %%L:
             call :log_setup %%L
             call :upload_setupact
             start /wait "" %%L:\setup.exe
@@ -169,8 +169,8 @@ for /L %%R in (1,1,60) do (
             goto :done
         )
         if exist %%L:\sources\setup.exe (
-            echo Found installer on %%L:\sources\
-            call :trace found setup.exe on %%L:\sources\
+            echo Found installer on %%L:\sources
+            call :trace found setup.exe on %%L:\sources
             call :log_setup %%L
             call :upload_setupact
             start /wait "" %%L:\sources\setup.exe
@@ -225,6 +225,7 @@ ping -n 3 127.0.0.1 >nul 2>&1
 exit /b 0
 
 :trace
+if not defined TRACE_ENABLED exit /b 0
 echo [startnet] %DATE% %TIME% - %*>> %TRACE_FILE%
 exit /b 0
 
@@ -253,7 +254,8 @@ if defined UPLOAD_OK (
 exit /b 0
 
 :upload_trace
-if not exist %TRACE_FILE% exit /b 0
+if not defined TRACE_ENABLED exit /b 0
+if not exist "%TRACE_FILE%" exit /b 0
 set TRACE_OK=
 where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{startnet_upload_url}' -Method Put -InFile $env:TRACE_FILE | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && set TRACE_OK=1
 if not defined TRACE_OK where curl.exe >nul 2>&1 && curl.exe -fsS -X PUT --data-binary "@%TRACE_FILE%" "{startnet_upload_url}" >nul 2>&1 && set TRACE_OK=1
