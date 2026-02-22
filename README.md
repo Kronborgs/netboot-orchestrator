@@ -8,6 +8,8 @@
 Netboot Orchestrator is an all-in-one PXE and iSCSI deployment system for homelab and lab environments.
 It gives you a boot menu (iPXE), a Web GUI, and backend automation to install or boot operating systems on network clients.
 
+![Web GUI Dashboard Overview](docs/screenshots/webgui-dashboard-overview.png)
+
 ## What it can do today
 - PXE boot with iPXE menus
 - Manage iSCSI images (create, link, unlink, copy, rename)
@@ -51,12 +53,24 @@ Then open:
 4. Select boot/install action from iPXE menu
 5. Monitor logs and metrics in Web GUI during install
 
+![iPXE Boot Menu - Main](docs/screenshots/bootmenu-main.png)
+
+![iPXE Boot Menu - Windows Install](docs/screenshots/bootmenu-windows-install.png)
+
+![Web GUI Inventory - Devices](docs/screenshots/webgui-inventory-devices.png)
+
+![Web GUI iSCSI Image Management](docs/screenshots/webgui-image-management.png)
+
 ## Realtime metrics debug (advanced users)
 Use this endpoint to inspect exactly which source/fallback each metric comes from per MAC:
 - `GET /api/v1/boot/devices/metrics/debug`
 - `GET /api/v1/boot/devices/metrics/debug?include_full=true`
 
 This is useful when validating session attribution and fallback behavior across multiple clients.
+
+![Web GUI Realtime Device Logs](docs/screenshots/webgui-device-logs-realtime.png)
+
+![Web GUI Connection Metrics](docs/screenshots/webgui-connection-metrics.png)
 
 ## Screenshot plan (where to place images)
 Create image files in `docs/screenshots/` with these names and use the sections below.
