@@ -267,6 +267,8 @@ start "" %SETUP_PATH%
 set SETUP_EXIT=running
 for /L %%S in (1,1,180) do (
     ping -n 6 127.0.0.1 >nul 2>&1
+    set /a HEARTBEAT_MOD=%%S %% 6
+    if !HEARTBEAT_MOD! EQU 0 call :log_http "{log_url_base}setup_running_tick_%%S"
     call :upload_setup
     call :upload_trace_now
     where tasklist.exe >nul 2>&1

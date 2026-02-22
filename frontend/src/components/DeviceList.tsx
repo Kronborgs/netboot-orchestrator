@@ -132,11 +132,11 @@ export const DeviceList: React.FC = () => {
 
     const metricsTimer = setInterval(() => {
       fetchDeviceDetails(expandedMac, false);
-    }, 1000);
+    }, 3000);
 
     const logsTimer = setInterval(() => {
       fetchDeviceDetails(expandedMac, true);
-    }, 5000);
+    }, 10000);
 
     return () => {
       clearInterval(metricsTimer);
