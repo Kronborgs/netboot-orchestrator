@@ -62,13 +62,18 @@ class IscsiService:
 
         current_tid = None
         for line in stdout.splitlines():
-            line = line.strip()
-            if line.startswith("Target "):
+            raw_line = line.strip()
+            if raw_line.startswith("Target "):
                 try:
-                    current_tid = int(line.split(":")[0].replace("Target ", ""))
+                    current_tid = int(raw_line.split(":", 1)[0].replace("Target ", ""))
                 except ValueError:
                     current_tid = None
-            elif current_tid and target_name in line:
+                    continue
+
+                # Common tgtd format: "Target 1: iqn...."
+                if target_name in raw_line:
+                    return current_tid
+            elif current_tid and target_name in raw_line:
                 return current_tid
         return None
 
@@ -379,6 +384,21 @@ class IscsiService:
             "--targetname", target_name,
         ])
         if not ok:
+            err_l = (err or "").lower()
+            if "already exists" in err_l or "target exists" in err_l:
+                reused_tid = self._get_tid_by_target_name(target_name)
+                if reused_tid:
+                    logger.info(
+                        f"Installer ISO target already existed; reusing target={target_name} tid={reused_tid}"
+                    )
+                    return {
+                        "success": True,
+                        "tid": reused_tid,
+                        "target_name": target_name,
+                        "san_url": f"iscsi:{self.boot_server_ip}:::1:{target_name}",
+                        "reused": True,
+                        "lun_mode": "reused",
+                    }
             return {"success": False, "error": f"tgtadm new target failed: {err}"}
 
         ok, _, err = self._run_cmd([
