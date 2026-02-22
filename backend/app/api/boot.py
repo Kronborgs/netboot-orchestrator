@@ -713,8 +713,6 @@ async def boot_ipxe_main_menu(db: Database = Depends(get_db)):
 
     script = f"""#!ipxe
 # {BRANDING}
-
-set menu-timeout 30000
 console --picture {logo_url} ||
 
 :main_menu
@@ -739,7 +737,7 @@ item shell         iPXE Shell
 item device_info   Device Info
 item reboot        Reboot
 item --gap --
-choose --timeout ${{menu-timeout}} selected || goto shell
+choose selected || goto shell
 goto ${{selected}}
 
 :os_install
