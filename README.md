@@ -4,7 +4,7 @@
 >
 > Production-ready web orchestrator for SD-card-less network boot, disk image management, and automatic device provisioning
 
-[![GitHub Release](https://img.shields.io/badge/Release-2026--02--22--V192-blue?style=flat-square)](https://github.com/Kronborgs/netboot-orchestrator/releases)
+[![GitHub Release](https://img.shields.io/badge/Release-2026--02--22--V193-blue?style=flat-square)](https://github.com/Kronborgs/netboot-orchestrator/releases)
 [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker)](https://ghcr.io/kronborgs/netboot-orchestrator)
 [![Unraid](https://img.shields.io/badge/Unraid-Template-F15A2C?style=flat-square)](unraid-template.xml)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python)](https://www.python.org/)
@@ -97,7 +97,7 @@ docker run -d --name netboot --network host --privileged \
      │                                   │           │
      └───────────────┬────────────────────┴───────────┘
                      │
-**Version**: 2026-02-22-V192
+**Version**: 2026-02-22-V193
         │  netboot-orchestrator (Single Container) │
         │  (Host Network, Privileged)           │
         ├─────────────────────────────────────┤
@@ -540,6 +540,6 @@ If you find this project useful, please consider giving it a star! It helps othe
 
 **Repository**: [Kronborgs/netboot-orchestrator](https://github.com/Kronborgs/netboot-orchestrator)
 
-**Version**: 2026-02-22-V192
+**Version**: 2026-02-22-V193
 
 **Last Updated**: February 22, 2026

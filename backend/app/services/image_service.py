@@ -5,7 +5,7 @@ import re
 import hashlib
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 from ..database import Database
 
@@ -123,6 +123,55 @@ class IscsiService:
             pass
         return values
 
+    def _get_active_target_remote_ip_refcounts(self) -> Tuple[Dict[str, int], int]:
+        """Return (remote_ip -> active target count, active target total)."""
+        success, stdout, _ = self._run_cmd(
+            ["tgtadm", "--lld", "iscsi", "--op", "show", "--mode", "target"]
+        )
+        if not success or not stdout:
+            return {}, 0
+
+        refcounts: Dict[str, int] = defaultdict(int)
+        active_targets = 0
+        current_ips: set[str] = set()
+        current_has_connection = False
+        in_target = False
+
+        def flush_current():
+            nonlocal active_targets, current_ips, current_has_connection
+            if not in_target:
+                return
+            if current_has_connection and current_ips:
+                active_targets += 1
+                for ip in current_ips:
+                    refcounts[ip] += 1
+            current_ips = set()
+            current_has_connection = False
+
+        for line in stdout.splitlines():
+            raw = line.strip()
+            if raw.startswith("Target "):
+                flush_current()
+                in_target = True
+                continue
+
+            if not in_target:
+                continue
+
+            if raw.startswith("Connection:"):
+                current_has_connection = True
+
+            ip_match = re.search(r"IP Address:\s*([^\s]+)", raw)
+            if ip_match:
+                cleaned = ip_match.group(1).strip().strip("[]")
+                if cleaned.lower().startswith("::ffff:"):
+                    cleaned = cleaned[7:]
+                if cleaned:
+                    current_ips.add(cleaned)
+
+        flush_current()
+        return dict(refcounts), active_targets
+
     def get_image_connection_metrics(self, image_name: str) -> Dict:
         """Get iSCSI connection + IO metrics for an image (best effort)."""
         image = self.db.get_image(image_name)
@@ -186,6 +235,7 @@ class IscsiService:
         base_result["connection"]["active"] = base_result["connection"]["session_count"] > 0
 
         socket_stats = self._get_iscsi_socket_counters()
+        ip_refcounts, active_target_count = self._get_active_target_remote_ip_refcounts()
         if not base_result["connection"]["active"] and socket_stats:
             if len(socket_stats) == 1:
                 inferred_ip = next(iter(socket_stats.keys()))
@@ -233,7 +283,10 @@ class IscsiService:
             total_rx = 0
             total_tx = 0
             matched = False
-            for remote_ip in remote_ips:
+            ambiguous_ips = [ip for ip in remote_ips if ip_refcounts.get(ip, 0) > 1]
+            candidate_ips = [ip for ip in remote_ips if ip_refcounts.get(ip, 0) <= 1]
+
+            for remote_ip in candidate_ips:
                 entry = socket_stats.get(remote_ip)
                 if not entry:
                     continue
@@ -244,7 +297,7 @@ class IscsiService:
             if not matched and base_result["connection"]["session_count"] == 1:
                 # If tgtd does not expose remote IP but exactly one iSCSI session is active,
                 # use aggregate socket counters as a best-effort mapping.
-                if len(socket_stats) == 1:
+                if len(socket_stats) == 1 and active_target_count <= 1:
                     only = next(iter(socket_stats.values()))
                     total_rx = int(only.get("rx_bytes", 0))
                     total_tx = int(only.get("tx_bytes", 0))
@@ -262,6 +315,12 @@ class IscsiService:
                     base_result["disk_io"]["read_bytes"] = total_tx
                     base_result["disk_io"]["write_bytes"] = total_rx
                     base_result["disk_io"]["source"] = "socket_counters_estimate"
+            elif ambiguous_ips:
+                base_result["warning"] = (
+                    (base_result.get("warning", "") + " ").strip() +
+                    "Per-device iSCSI socket counters are ambiguous (shared initiator IP across active targets); "
+                    "skipping byte attribution to avoid mixed logs."
+                ).strip()
 
         if base_result["network"]["source"] == "unavailable":
             base_result["warning"] = (

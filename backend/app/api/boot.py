@@ -1757,7 +1757,7 @@ async def get_device_metrics(mac: str, db: Database = Depends(get_db)):
 
         connection = metrics.get("connection") or {}
         existing_ips = list(connection.get("remote_ips") or [])
-        if fallback_remote_ip and fallback_remote_ip not in existing_ips:
+        if fallback_remote_ip and not existing_ips:
             existing_ips.append(fallback_remote_ip)
             connection["remote_ips"] = existing_ips
             metrics["connection"] = connection
