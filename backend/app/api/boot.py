@@ -80,7 +80,8 @@ async def winpe_startnet_cmd(
             system_target_iqn = ""
 
     boot_ip = _env("BOOT_SERVER_IP", "192.168.1.50")
-    mac_encoded = quote(mac, safe='') if mac else "unknown"
+    mac_safe = _normalize_mac(mac) if mac else "unknown"
+    mac_encoded = quote(mac_safe, safe='') if mac_safe else "unknown"
     log_url_base = (
         f"http://{boot_ip}:8000/api/v1/boot/log"
         f"?mac={mac_encoded}&event=winpe_setup_autostart&details="
