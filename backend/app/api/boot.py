@@ -131,7 +131,7 @@ where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass 
 call :ensure_http_helper
 if exist "%HTTP_HELPER%" where cscript.exe >nul 2>&1 && cscript //nologo "%HTTP_HELPER%" get "%LOG_URL%" >nul 2>&1 && exit /b 0
 where curl.exe >nul 2>&1 && curl.exe -fsS "%LOG_URL%" >nul 2>&1 && exit /b 0
-set "LOG_TMP=X:\nb-log-%RANDOM%.tmp"
+set "LOG_TMP=X:\\nb-log-%RANDOM%.tmp"
 set "LOG_JOB=nb_log_%RANDOM%"
 where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer "%LOG_JOB%" /download /priority foreground "%LOG_URL%" "%LOG_TMP%" >nul 2>&1 && (if exist "%LOG_TMP%" del /q "%LOG_TMP%" >nul 2>&1) && exit /b 0
 exit /b 0
