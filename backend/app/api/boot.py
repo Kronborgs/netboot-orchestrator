@@ -2132,6 +2132,103 @@ async def get_device_metrics(mac: str, db: Database = Depends(get_db)):
     return metrics
 
 
+@router.get("/devices/metrics/debug")
+async def get_metrics_debug(include_full: bool = Query(False), db: Database = Depends(get_db)):
+    """Realtime debug view of metrics attribution/fallback source per device MAC."""
+    generated_at = datetime.now().astimezone().isoformat()
+    devices_payload = []
+
+    for device in db.get_all_devices():
+        mac = (device.get("mac") or "").strip()
+        if not mac:
+            continue
+
+        transfer = db.get_device_transfer(mac) or {}
+        transfer_summary = {
+            "session_id": (transfer.get("session_id") or ""),
+            "session_started_at": (transfer.get("session_started_at") or ""),
+            "last_seen": (transfer.get("last_seen") or ""),
+            "last_remote_ip": (transfer.get("last_remote_ip") or ""),
+            "http_requests": int(transfer.get("http_requests", 0) or 0),
+            "iscsi_requests": int(transfer.get("iscsi_requests", 0) or 0),
+            "http_tx_bytes": int(transfer.get("http_tx_bytes", 0) or 0),
+            "stall_state": (transfer.get("stall_state") or ""),
+            "stall_last_total_bytes": int(transfer.get("stall_last_total_bytes", 0) or 0),
+            "stall_last_progress_at": (transfer.get("stall_last_progress_at") or ""),
+        }
+
+        try:
+            metrics = await get_device_metrics(mac=mac, db=db)
+            connection = metrics.get("connection") or {}
+            network = metrics.get("network") or {}
+            disk_io = metrics.get("disk_io") or {}
+            install_progress = metrics.get("install_progress") or {}
+
+            debug_entry = {
+                "mac": mac,
+                "name": metrics.get("name") or device.get("name") or "",
+                "image_id": metrics.get("image_id") or device.get("image_id") or "",
+                "linked": bool(metrics.get("linked")),
+                "success": True,
+                "connection": {
+                    "active": bool(connection.get("active")),
+                    "session_count": int(connection.get("session_count", 0) or 0),
+                    "remote_ips": list(connection.get("remote_ips") or []),
+                    "source": connection.get("source") or "",
+                },
+                "network": {
+                    "source": network.get("source") or "",
+                    "rx_bytes": network.get("rx_bytes"),
+                    "tx_bytes": network.get("tx_bytes"),
+                },
+                "disk_io": {
+                    "source": disk_io.get("source") or "",
+                    "read_bytes": disk_io.get("read_bytes"),
+                    "write_bytes": disk_io.get("write_bytes"),
+                },
+                "install_progress": {
+                    "observed_source": install_progress.get("observed_source") or "",
+                    "observed_total_bytes": install_progress.get("observed_total_bytes"),
+                    "attribution_confidence": install_progress.get("attribution_confidence") or metrics.get("attribution_confidence") or "unknown",
+                    "stalled": bool(install_progress.get("stalled")),
+                    "stall_seconds": int(install_progress.get("stall_seconds", 0) or 0),
+                },
+                "warning": metrics.get("warning") or "",
+                "transfer": transfer_summary,
+            }
+
+            if include_full:
+                debug_entry["metrics"] = metrics
+
+            devices_payload.append(debug_entry)
+        except HTTPException as exc:
+            devices_payload.append({
+                "mac": mac,
+                "name": device.get("name") or "",
+                "image_id": device.get("image_id") or "",
+                "linked": bool(device.get("image_id")),
+                "success": False,
+                "error": str(exc.detail),
+                "transfer": transfer_summary,
+            })
+        except Exception as exc:
+            devices_payload.append({
+                "mac": mac,
+                "name": device.get("name") or "",
+                "image_id": device.get("image_id") or "",
+                "linked": bool(device.get("image_id")),
+                "success": False,
+                "error": str(exc),
+                "transfer": transfer_summary,
+            })
+
+    return {
+        "generated_at": generated_at,
+        "device_count": len(devices_payload),
+        "devices": devices_payload,
+    }
+
+
 @router.post("/devices/{mac}/transfer/reset")
 async def reset_device_transfer_state(mac: str, db: Database = Depends(get_db)):
     """Manually reset stale transfer/session telemetry for a specific device."""
