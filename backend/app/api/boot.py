@@ -80,8 +80,8 @@ async def winpe_startnet_cmd(
             system_target_iqn = ""
 
     boot_ip = _env("BOOT_SERVER_IP", "192.168.1.50")
-    mac_safe = _normalize_mac(mac) if mac else "unknown"
-    mac_encoded = quote(mac_safe, safe='') if mac_safe else "unknown"
+    mac_for_url = (mac or "").strip().lower() or "unknown"
+    mac_encoded = quote(mac_for_url, safe=':')
     log_url_base = (
         f"http://{boot_ip}:8000/api/v1/boot/log"
         f"?mac={mac_encoded}&event=winpe_setup_autostart&details="
@@ -146,6 +146,7 @@ if defined SETUPACT_PATH (
     if not defined UPLOAD_OK where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{setupact_upload_url}' -Method Put -InFile $env:SETUPACT_PATH | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && set UPLOAD_OK=1
     if not defined UPLOAD_OK where curl.exe >nul 2>&1 && curl.exe -fsS -X PUT --data-binary "@%SETUPACT_PATH%" "{setupact_upload_url}" >nul 2>&1 && set UPLOAD_OK=1
     if not defined UPLOAD_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_setupact /upload /priority normal "%SETUPACT_PATH%" "{setupact_upload_url}" >nul 2>&1 && set UPLOAD_OK=1
+    if not defined UPLOAD_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_setupact2 /upload /priority normal "{setupact_upload_url}" "%SETUPACT_PATH%" >nul 2>&1 && set UPLOAD_OK=1
     if defined UPLOAD_OK (
         call :log_http "{log_url_base}setupact_uploaded"
     ) else (
@@ -164,6 +165,7 @@ if defined SETUPERR_PATH (
     if not defined ERR_OK where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{setuperr_upload_url}' -Method Put -InFile $env:SETUPERR_PATH | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && set ERR_OK=1
     if not defined ERR_OK where curl.exe >nul 2>&1 && curl.exe -fsS -X PUT --data-binary "@%SETUPERR_PATH%" "{setuperr_upload_url}" >nul 2>&1 && set ERR_OK=1
     if not defined ERR_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_setuperr /upload /priority normal "%SETUPERR_PATH%" "{setuperr_upload_url}" >nul 2>&1 && set ERR_OK=1
+    if not defined ERR_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_setuperr2 /upload /priority normal "{setuperr_upload_url}" "%SETUPERR_PATH%" >nul 2>&1 && set ERR_OK=1
     if defined ERR_OK (
         call :log_http "{log_url_base}setuperr_uploaded"
     ) else (
@@ -179,6 +181,7 @@ set TRACE_OK=
 where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{startnet_upload_url}' -Method Put -InFile $env:TRACE_FILE | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && set TRACE_OK=1
 if not defined TRACE_OK where curl.exe >nul 2>&1 && curl.exe -fsS -X PUT --data-binary "@%TRACE_FILE%" "{startnet_upload_url}" >nul 2>&1 && set TRACE_OK=1
 if not defined TRACE_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_startnet /upload /priority normal "%TRACE_FILE%" "{startnet_upload_url}" >nul 2>&1 && set TRACE_OK=1
+if not defined TRACE_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_startnet2 /upload /priority normal "{startnet_upload_url}" "%TRACE_FILE%" >nul 2>&1 && set TRACE_OK=1
 if defined TRACE_OK (
     call :log_http "{log_url_base}startnet_uploaded"
 ) else (
@@ -330,6 +333,7 @@ if defined SETUPACT_PATH (
     if not defined UPLOAD_OK where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{setupact_upload_url}' -Method Put -InFile $env:SETUPACT_PATH | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && set UPLOAD_OK=1
     if not defined UPLOAD_OK where curl.exe >nul 2>&1 && curl.exe -fsS -X PUT --data-binary "@%SETUPACT_PATH%" "{setupact_upload_url}" >nul 2>&1 && set UPLOAD_OK=1
     if not defined UPLOAD_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_setupact /upload /priority normal "%SETUPACT_PATH%" "{setupact_upload_url}" >nul 2>&1 && set UPLOAD_OK=1
+    if not defined UPLOAD_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_setupact2 /upload /priority normal "{setupact_upload_url}" "%SETUPACT_PATH%" >nul 2>&1 && set UPLOAD_OK=1
     if defined UPLOAD_OK (
         call :log_http "{log_url_base}setupact_uploaded"
     ) else (
@@ -348,6 +352,7 @@ if defined SETUPERR_PATH (
     if not defined ERR_OK where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{setuperr_upload_url}' -Method Put -InFile $env:SETUPERR_PATH | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && set ERR_OK=1
     if not defined ERR_OK where curl.exe >nul 2>&1 && curl.exe -fsS -X PUT --data-binary "@%SETUPERR_PATH%" "{setuperr_upload_url}" >nul 2>&1 && set ERR_OK=1
     if not defined ERR_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_setuperr /upload /priority normal "%SETUPERR_PATH%" "{setuperr_upload_url}" >nul 2>&1 && set ERR_OK=1
+    if not defined ERR_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_setuperr2 /upload /priority normal "{setuperr_upload_url}" "%SETUPERR_PATH%" >nul 2>&1 && set ERR_OK=1
     if defined ERR_OK (
         call :log_http "{log_url_base}setuperr_uploaded"
     ) else (
@@ -363,6 +368,7 @@ set TRACE_OK=
 where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{startnet_upload_url}' -Method Put -InFile $env:TRACE_FILE | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && set TRACE_OK=1
 if not defined TRACE_OK where curl.exe >nul 2>&1 && curl.exe -fsS -X PUT --data-binary "@%TRACE_FILE%" "{startnet_upload_url}" >nul 2>&1 && set TRACE_OK=1
 if not defined TRACE_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_startnet /upload /priority normal "%TRACE_FILE%" "{startnet_upload_url}" >nul 2>&1 && set TRACE_OK=1
+if not defined TRACE_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_startnet2 /upload /priority normal "{startnet_upload_url}" "%TRACE_FILE%" >nul 2>&1 && set TRACE_OK=1
 if defined TRACE_OK (
     call :log_http "{log_url_base}startnet_uploaded"
 ) else (
