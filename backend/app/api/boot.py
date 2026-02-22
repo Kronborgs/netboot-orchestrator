@@ -1809,6 +1809,47 @@ async def get_device_metrics(mac: str, db: Database = Depends(get_db)):
         int((now - last_transfer_dt).total_seconds()) <= recent_transfer_window_seconds
     )
 
+    owner_window_seconds = max(int(_env("METRICS_IP_OWNER_WINDOW_SECONDS", "7200") or 7200), 300)
+
+    def _resolve_ip_owner_mac(remote_ip: str) -> str:
+        candidate_ip = (remote_ip or "").strip()
+        if not candidate_ip:
+            return ""
+
+        owner_mac = ""
+        owner_start_dt = None
+        for dev in db.get_all_devices():
+            dev_mac = (dev.get("mac") or "").strip().lower()
+            if not dev_mac:
+                continue
+
+            dev_transfer = db.get_device_transfer(dev_mac)
+            if not dev_transfer:
+                continue
+
+            if (dev_transfer.get("last_remote_ip") or "").strip() != candidate_ip:
+                continue
+
+            if int(dev_transfer.get("http_requests", 0) or 0) <= 0:
+                continue
+
+            started_raw = (dev_transfer.get("session_started_at") or "").strip()
+            started_dt = _parse_iso_timestamp(started_raw)
+            if started_dt is None:
+                continue
+            if started_dt.tzinfo is None:
+                started_dt = started_dt.astimezone()
+
+            age_seconds = int((now - started_dt).total_seconds())
+            if age_seconds > owner_window_seconds:
+                continue
+
+            if owner_start_dt is None or started_dt > owner_start_dt:
+                owner_start_dt = started_dt
+                owner_mac = dev_mac
+
+        return owner_mac
+
     def _is_unique_recent_ip_owner(remote_ip: str) -> bool:
         candidate_ip = (remote_ip or "").strip()
         if not candidate_ip:
@@ -1864,6 +1905,35 @@ async def get_device_metrics(mac: str, db: Database = Depends(get_db)):
                         "source": "socket_counters_mac_hint_estimate",
                     }
                 metrics["attribution_confidence"] = "medium"
+
+    connection = metrics.get("connection") or {}
+    remote_ips = list(connection.get("remote_ips") or [])
+    owner_ip = remote_ips[0] if remote_ips else (transfer.get("last_remote_ip") or "").strip()
+    resolved_owner_mac = _resolve_ip_owner_mac(owner_ip).lower() if owner_ip else ""
+    current_mac_normalized = (mac or "").strip().lower()
+
+    if resolved_owner_mac and resolved_owner_mac != current_mac_normalized:
+        connection["active"] = False
+        connection["session_count"] = 0
+        connection["remote_ips"] = []
+        metrics["connection"] = connection
+
+        metrics["network"] = {
+            "rx_bytes": None,
+            "tx_bytes": None,
+            "source": "unavailable",
+        }
+        if metrics.get("disk_io", {}).get("source") != "target_stats":
+            metrics["disk_io"] = {
+                "read_bytes": None,
+                "write_bytes": None,
+                "source": "unavailable",
+            }
+
+        metrics["warning"] = _append_warning(
+            metrics.get("warning", ""),
+            f"Remote IP {owner_ip} is currently attributed to device {resolved_owner_mac}; hiding stale metrics for this device.",
+        )
 
     network = metrics.get("network") or {}
     disk_io = metrics.get("disk_io") or {}
