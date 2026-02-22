@@ -515,19 +515,20 @@ async def upload_winpe_log(
     db.add_boot_log(mac, "winpe_log_upload", f"{name} uploaded ({len(content)} bytes)")
 
     lower_name = name.lower()
-    if lower_name in {"setupact.log", "setuperr.log"}:
-        raw_text = ""
-        for encoding in ("utf-8", "utf-16", "latin-1"):
-            try:
-                raw_text = content.decode(encoding, errors="ignore")
-                if raw_text:
-                    break
-            except Exception:
-                continue
+    raw_text = ""
+    for encoding in ("utf-8", "utf-16", "latin-1"):
+        try:
+            raw_text = content.decode(encoding, errors="ignore")
+            if raw_text:
+                break
+        except Exception:
+            continue
 
-        if raw_text:
-            lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
-            tail = lines[-600:]
+    if raw_text:
+        lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+        tail = lines[-600:]
+
+        if lower_name in {"setupact.log", "setuperr.log"}:
             pattern = re.compile(r"(error|failed|failure|cannot|0x[0-9a-f]+|rollback|abort)", re.IGNORECASE)
             hints = []
             for line in tail:
@@ -543,6 +544,24 @@ async def upload_winpe_log(
                     db.add_boot_log(mac, "winpe_setup_hint", f"{name}: {hint}")
             else:
                 db.add_boot_log(mac, "winpe_setup_hint", f"{name}: no explicit error keywords found in recent log tail")
+
+            latest = re.sub(r"\s+", " ", tail[-1])[:320] if tail else ""
+            if latest:
+                db.add_boot_log(mac, "winpe_setup_status", f"{name}: {latest}")
+
+        elif lower_name == "startnet.log":
+            status_pattern = re.compile(
+                r"(wpeinit|searching for installer media|found installer media|launching setup|"
+                r"attach|skip drive|no installer media|upload.*failed|setup process exit)",
+                re.IGNORECASE,
+            )
+            candidates = [re.sub(r"\s+", " ", ln)[:320] for ln in tail if status_pattern.search(ln)]
+            if candidates:
+                db.add_boot_log(mac, "winpe_startnet_status", f"startnet.log: {candidates[-1]}")
+            else:
+                latest = re.sub(r"\s+", " ", tail[-1])[:320] if tail else ""
+                if latest:
+                    db.add_boot_log(mac, "winpe_startnet_status", f"startnet.log: {latest}")
 
     return {"success": True, "name": name, "size_bytes": len(content)}
 
