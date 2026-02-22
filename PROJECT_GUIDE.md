@@ -1,6 +1,6 @@
 # Netboot Orchestrator - Project Guide
 
-**Last Updated:** February 21, 2026  
+**Last Updated:** February 22, 2026  
 **Version:** 2026-02-22-V162  
 **Status:** Fully operational — PXE boot, iSCSI, WebUI, CI/CD all working  
 **Branding:** Designed by Kenneth Kronborg AI Team
