@@ -1719,10 +1719,11 @@ async def record_boot_log(
 async def get_boot_logs(
     mac: str = Query(None),
     limit: int = Query(100),
+    since: str = Query(None),
     db: Database = Depends(get_db),
 ):
     """Get boot logs, optionally filtered by MAC."""
-    return db.get_boot_logs(mac=mac, limit=limit)
+    return db.get_boot_logs(mac=mac, limit=limit, since=since)
 
 
 @router.get("/devices/{mac}/metrics")
@@ -1799,6 +1800,34 @@ async def get_device_metrics(mac: str, db: Database = Depends(get_db)):
     connection = metrics.get("connection") or {}
     attribution_confidence = (metrics.get("attribution_confidence") or "unknown").strip().lower()
     stall_measurement_allowed = attribution_confidence == "high"
+
+    recent_transfer_window_seconds = max(int(_env("METRICS_RECENT_TRANSFER_SECONDS", "300") or 300), 30)
+    last_transfer_seen = (transfer.get("last_seen") or "").strip()
+    last_transfer_dt = _parse_iso_timestamp(last_transfer_seen)
+    if last_transfer_dt is not None and last_transfer_dt.tzinfo is None:
+        last_transfer_dt = last_transfer_dt.astimezone()
+    has_recent_transfer = (
+        last_transfer_dt is not None and
+        int((now - last_transfer_dt).total_seconds()) <= recent_transfer_window_seconds
+    )
+
+    if bool(connection.get("active")) and attribution_confidence != "high" and not has_recent_transfer:
+        connection["active"] = False
+        connection["session_count"] = 0
+        connection["remote_ips"] = []
+        metrics["connection"] = connection
+
+        if metrics.get("network", {}).get("source") == "http_transfer_aggregate":
+            metrics["network"] = {
+                "rx_bytes": None,
+                "tx_bytes": None,
+                "source": "unavailable",
+            }
+
+        metrics["warning"] = _append_warning(
+            metrics.get("warning", ""),
+            "Stale unattributed iSCSI session hidden for this device (no recent device-local transfer activity).",
+        )
 
     observed_total_bytes = None
     observed_source = "none"

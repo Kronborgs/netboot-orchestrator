@@ -261,16 +261,7 @@ export const DeviceList: React.FC = () => {
   const fetchDeviceDetails = async (mac: string, includeLogs: boolean) => {
     try {
       let currentSessionStartedAt: string | undefined;
-      const requests: Promise<Response>[] = [
-        apiFetch(`/api/v1/boot/devices/${encodeURIComponent(mac)}/metrics`)
-      ];
-      if (includeLogs) {
-        requests.push(apiFetch(`/api/v1/boot/logs?mac=${encodeURIComponent(mac)}&limit=20`));
-        requests.push(apiFetch(`/api/v1/boot/winpe/logs?mac=${encodeURIComponent(mac)}`));
-      }
-
-      const responses = await Promise.all(requests);
-      const metricsRes = responses[0];
+      const metricsRes = await apiFetch(`/api/v1/boot/devices/${encodeURIComponent(mac)}/metrics`);
 
       if (metricsRes.ok) {
         const data = await metricsRes.json();
@@ -329,22 +320,25 @@ export const DeviceList: React.FC = () => {
         setMetricsByMac(prev => ({ ...prev, [mac]: data }));
       }
 
-      if (includeLogs && responses[1] && responses[1].ok) {
-        const logsData = await responses[1].json();
-        const rawLogs: DeviceLog[] = logsData || [];
-        const sessionStartMs = currentSessionStartedAt ? new Date(currentSessionStartedAt).getTime() : NaN;
-        const filteredLogs = Number.isFinite(sessionStartMs)
-          ? rawLogs.filter((entry) => {
-              const entryMs = new Date(entry.timestamp).getTime();
-              return !Number.isNaN(entryMs) && entryMs >= (sessionStartMs - 2000);
-            })
-          : rawLogs;
-        setLogsByMac(prev => ({ ...prev, [mac]: filteredLogs }));
-      }
+      if (includeLogs) {
+        const sinceQs = currentSessionStartedAt
+          ? `&since=${encodeURIComponent(currentSessionStartedAt)}`
+          : '';
 
-      if (includeLogs && responses[2] && responses[2].ok) {
-        const filesData = await responses[2].json();
-        setWinpeLogsByMac(prev => ({ ...prev, [mac]: filesData || [] }));
+        const [logsRes, filesRes] = await Promise.all([
+          apiFetch(`/api/v1/boot/logs?mac=${encodeURIComponent(mac)}&limit=20${sinceQs}`),
+          apiFetch(`/api/v1/boot/winpe/logs?mac=${encodeURIComponent(mac)}`),
+        ]);
+
+        if (logsRes.ok) {
+          const logsData = await logsRes.json();
+          setLogsByMac(prev => ({ ...prev, [mac]: logsData || [] }));
+        }
+
+        if (filesRes.ok) {
+          const filesData = await filesRes.json();
+          setWinpeLogsByMac(prev => ({ ...prev, [mac]: filesData || [] }));
+        }
       }
     } catch (err) {
       console.error('Failed to fetch device details', err);

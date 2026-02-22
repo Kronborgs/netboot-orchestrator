@@ -228,13 +228,40 @@ class Database:
         self._write_json(self.boot_logs_file, logs)
         return entry
 
-    def get_boot_logs(self, mac: str = None, limit: int = 100) -> List[Dict]:
+    def get_boot_logs(self, mac: str = None, limit: int = 100, since: str = None) -> List[Dict]:
         """Get boot logs, optionally filtered by MAC."""
         logs = self._read_json(self.boot_logs_file)
         if not isinstance(logs, list):
             return []
         if mac:
             logs = [l for l in logs if l.get("mac") == mac]
+
+        if since:
+            raw = (since or "").strip()
+            if raw.endswith("Z"):
+                raw = raw[:-1] + "+00:00"
+            try:
+                since_dt = datetime.fromisoformat(raw)
+                if since_dt.tzinfo is None:
+                    since_dt = since_dt.astimezone()
+
+                filtered = []
+                for entry in logs:
+                    ts_raw = (entry.get("timestamp") or "").strip()
+                    if ts_raw.endswith("Z"):
+                        ts_raw = ts_raw[:-1] + "+00:00"
+                    try:
+                        ts_dt = datetime.fromisoformat(ts_raw)
+                        if ts_dt.tzinfo is None:
+                            ts_dt = ts_dt.astimezone()
+                        if ts_dt >= since_dt:
+                            filtered.append(entry)
+                    except Exception:
+                        continue
+                logs = filtered
+            except Exception:
+                pass
+
         return list(reversed(logs[-limit:]))
 
     @staticmethod
@@ -344,7 +371,6 @@ class Database:
         })
 
         existing.update(fields or {})
-        existing["last_seen"] = self._now_iso()
 
         data[key] = existing
         self._write_json(self.device_transfer_file, data)
