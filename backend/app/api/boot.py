@@ -130,6 +130,58 @@ where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass 
 where curl.exe >nul 2>&1 && curl.exe -fsS "%LOG_URL%" >nul 2>&1 && exit /b 0
 exit /b 0
 
+:upload_setup
+set SETUPACT_PATH=
+for %%P in ("X:\Windows\Panther\setupact.log" "X:\$WINDOWS.~BT\Sources\Panther\setupact.log" "C:\$WINDOWS.~BT\Sources\Panther\setupact.log" "C:\Windows\Panther\setupact.log") do (
+    if exist %%~P set SETUPACT_PATH=%%~P
+)
+if defined SETUPACT_PATH (
+    call :trace uploading setupact from %SETUPACT_PATH%
+    set UPLOAD_OK=
+    where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ $wc = New-Object System.Net.WebClient; $null = $wc.UploadFile('{setupact_upload_url}', 'PUT', $env:SETUPACT_PATH); exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && set UPLOAD_OK=1
+    if not defined UPLOAD_OK where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{setupact_upload_url}' -Method Put -InFile $env:SETUPACT_PATH | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && set UPLOAD_OK=1
+    if not defined UPLOAD_OK where curl.exe >nul 2>&1 && curl.exe -fsS -X PUT --data-binary "@%SETUPACT_PATH%" "{setupact_upload_url}" >nul 2>&1 && set UPLOAD_OK=1
+    if not defined UPLOAD_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_setupact /upload /priority normal "%SETUPACT_PATH%" "{setupact_upload_url}" >nul 2>&1 && set UPLOAD_OK=1
+    if defined UPLOAD_OK (
+        call :log_http "{log_url_base}setupact_uploaded"
+    ) else (
+        call :log_http "{log_url_base}setupact_upload_failed"
+    )
+)
+
+set SETUPERR_PATH=
+for %%P in ("X:\Windows\Panther\setuperr.log" "X:\$WINDOWS.~BT\Sources\Panther\setuperr.log" "C:\$WINDOWS.~BT\Sources\Panther\setuperr.log" "C:\Windows\Panther\setuperr.log") do (
+    if exist %%~P set SETUPERR_PATH=%%~P
+)
+if defined SETUPERR_PATH (
+    call :trace uploading setuperr from %SETUPERR_PATH%
+    set ERR_OK=
+    where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ $wc = New-Object System.Net.WebClient; $null = $wc.UploadFile('{setuperr_upload_url}', 'PUT', $env:SETUPERR_PATH); exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && set ERR_OK=1
+    if not defined ERR_OK where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{setuperr_upload_url}' -Method Put -InFile $env:SETUPERR_PATH | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && set ERR_OK=1
+    if not defined ERR_OK where curl.exe >nul 2>&1 && curl.exe -fsS -X PUT --data-binary "@%SETUPERR_PATH%" "{setuperr_upload_url}" >nul 2>&1 && set ERR_OK=1
+    if not defined ERR_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_setuperr /upload /priority normal "%SETUPERR_PATH%" "{setuperr_upload_url}" >nul 2>&1 && set ERR_OK=1
+    if defined ERR_OK (
+        call :log_http "{log_url_base}setuperr_uploaded"
+    ) else (
+        call :log_http "{log_url_base}setuperr_upload_failed"
+    )
+)
+exit /b 0
+
+:upload_trace_now
+if not defined TRACE_ENABLED exit /b 0
+if not exist "%TRACE_FILE%" exit /b 0
+set TRACE_OK=
+where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{startnet_upload_url}' -Method Put -InFile $env:TRACE_FILE | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && set TRACE_OK=1
+if not defined TRACE_OK where curl.exe >nul 2>&1 && curl.exe -fsS -X PUT --data-binary "@%TRACE_FILE%" "{startnet_upload_url}" >nul 2>&1 && set TRACE_OK=1
+if not defined TRACE_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_startnet /upload /priority normal "%TRACE_FILE%" "{startnet_upload_url}" >nul 2>&1 && set TRACE_OK=1
+if defined TRACE_OK (
+    call :log_http "{log_url_base}startnet_uploaded"
+) else (
+    call :log_http "{log_url_base}startnet_upload_failed"
+)
+exit /b 0
+
 :main
 setlocal EnableExtensions EnableDelayedExpansion
 set "TRACE_FILE=X:\\netboot-startnet.log"
@@ -139,7 +191,7 @@ wpeinit
 wpeutil InitializeNetwork >nul 2>&1
 call :trace wpeinit completed
 call :log_http "{log_url_base}winpe_startnet_started"
-call :upload_trace
+call :upload_trace_now
 echo.
 echo ================================================
 echo  Netboot Orchestrator - Windows Setup Autostart
@@ -163,13 +215,13 @@ for /L %%R in (1,1,60) do (
 echo.
 echo No installer media with setup.exe found.
 call :trace no installer media found
-call :upload_setupact
-call :upload_trace
+call :upload_setup
+call :upload_trace_now
 echo Opening command prompt for manual troubleshooting.
 cmd.exe
 
 :done
-call :upload_trace
+call :upload_trace_now
 exit /b 0
 
 :log_setup
@@ -209,14 +261,14 @@ if not defined HAS_INSTALL_IMAGE (
 echo Found installer media on %DRIVE%:
 call :trace launching setup from %SETUP_PATH%
 call :log_setup %DRIVE%
-call :upload_setupact
-call :upload_trace
+call :upload_setup
+call :upload_trace_now
 start "" %SETUP_PATH%
 set SETUP_EXIT=running
 for /L %%S in (1,1,180) do (
     ping -n 6 127.0.0.1 >nul 2>&1
-    call :upload_setupact
-    call :upload_trace
+    call :upload_setup
+    call :upload_trace_now
     where tasklist.exe >nul 2>&1
     if not errorlevel 1 (
         tasklist /FI "IMAGENAME eq setup.exe" 2>nul | find /I "setup.exe" >nul 2>&1
@@ -225,8 +277,8 @@ for /L %%S in (1,1,180) do (
 )
 
 :setup_done
-call :upload_setupact
-call :upload_trace
+call :upload_setup
+call :upload_trace_now
 call :log_setup_exit !SETUP_EXIT!
 exit /b 0
 

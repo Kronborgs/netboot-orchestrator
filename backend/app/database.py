@@ -193,16 +193,22 @@ class Database:
     # Boot log operations
     def add_boot_log(self, mac: str, event: str, details: str = "", ip: str = "") -> Dict:
         """Record a boot event."""
+        inferred_type = self._infer_device_type(event, details)
+
         if self._is_mac_like(mac) and not self.get_device(mac):
             normalized = "".join(ch for ch in mac.upper() if ch in "0123456789ABCDEF")
             self.create_device(mac, {
-                "device_type": "unknown",
+                "device_type": inferred_type,
                 "name": f"Auto-{normalized[-6:]}",
                 "enabled": True,
                 "image_id": None,
                 "kernel_set": "default",
                 "installation_target": "http",
             })
+        elif self._is_mac_like(mac):
+            existing = self.get_device(mac)
+            if existing and existing.get("device_type") in {None, "", "unknown"} and inferred_type != "unknown":
+                self.update_device(mac, {"device_type": inferred_type})
 
         logs = self._read_json(self.boot_logs_file)
         if not isinstance(logs, list):
@@ -238,6 +244,23 @@ class Database:
     def _is_mac_like(value: str) -> bool:
         normalized = "".join(ch for ch in (value or "").lower() if ch in "0123456789abcdef")
         return len(normalized) == 12
+
+    @staticmethod
+    def _infer_device_type(event: str, details: str) -> str:
+        lower_event = (event or "").strip().lower()
+        lower_details = (details or "").strip().lower()
+
+        if "device_type=raspi" in lower_details or "raspi" in lower_details:
+            return "raspi"
+        if "device_type=x86" in lower_details:
+            return "x86"
+        if "device_type=x64" in lower_details:
+            return "x64"
+
+        if lower_event in {"windows_install", "iscsi_create", "iscsi_created", "iscsi_boot", "transfer_reset"}:
+            return "x64"
+
+        return "unknown"
 
     def add_device_transfer(
         self,
