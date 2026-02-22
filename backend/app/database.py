@@ -319,6 +319,36 @@ class Database:
             return {}
         return data.get(key, {})
 
+    def update_device_transfer_fields(self, mac: str, fields: Dict[str, Any]) -> Dict:
+        """Update extra transfer/session metadata fields for a specific MAC."""
+        key = self._normalize_mac(mac)
+        if not key:
+            return {}
+
+        data = self._read_json(self.device_transfer_file)
+        if not isinstance(data, dict):
+            data = {}
+
+        existing = data.get(key, {
+            "mac": key,
+            "http_tx_bytes": 0,
+            "http_requests": 0,
+            "iscsi_tx_bytes": 0,
+            "iscsi_requests": 0,
+            "last_path": "",
+            "last_remote_ip": "",
+            "last_protocol": "",
+            "first_seen": self._now_iso(),
+            "last_seen": self._now_iso(),
+        })
+
+        existing.update(fields or {})
+        existing["last_seen"] = self._now_iso()
+
+        data[key] = existing
+        self._write_json(self.device_transfer_file, data)
+        return existing
+
     def reset_device_transfer(self, mac: str) -> Dict:
         """Reset per-device transfer counters for a new boot/install session."""
         key = self._normalize_mac(mac)

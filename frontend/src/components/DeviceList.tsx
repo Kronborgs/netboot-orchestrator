@@ -39,6 +39,15 @@ interface DeviceMetrics {
     last_remote_ip?: string;
     session_started_at?: string;
   };
+  install_progress?: {
+    active_session: boolean;
+    stalled: boolean;
+    stall_seconds: number;
+    threshold_seconds: number;
+    last_progress_at?: string;
+    observed_total_bytes?: number;
+    observed_source?: string;
+  };
   warning?: string;
 }
 
@@ -540,6 +549,13 @@ export const DeviceList: React.FC = () => {
                                 {!!metricsByMac[device.mac]?.boot_transfer?.session_started_at && (
                                   <div style={{ marginTop: '2px', fontSize: '12px', color: 'var(--text-secondary)' }}>
                                     Session started: {formatTimestamp(metricsByMac[device.mac]?.boot_transfer?.session_started_at)}
+                                  </div>
+                                )}
+                                {!!metricsByMac[device.mac]?.install_progress && (
+                                  <div style={{ marginTop: '4px', fontSize: '12px', color: metricsByMac[device.mac]?.install_progress?.stalled ? 'var(--warning-color)' : 'var(--text-secondary)' }}>
+                                    Install progress: {metricsByMac[device.mac]?.install_progress?.active_session ? 'Session active' : 'Session inactive'}
+                                    {' • '}Stalled: {metricsByMac[device.mac]?.install_progress?.stalled ? 'Yes' : 'No'}
+                                    {' • '}Idle for: {metricsByMac[device.mac]?.install_progress?.stall_seconds ?? 0}s
                                   </div>
                                 )}
                                 <div style={{ marginTop: '4px', fontSize: '12px', color: 'var(--text-secondary)' }}>

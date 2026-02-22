@@ -32,6 +32,28 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _parse_iso_timestamp(value: str) -> Optional[datetime]:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        return datetime.fromisoformat(raw)
+    except Exception:
+        return None
+
+
+def _append_warning(existing: str, extra: str) -> str:
+    base = (existing or "").strip()
+    addition = (extra or "").strip()
+    if not base:
+        return addition
+    if not addition or addition in base:
+        return base
+    return f"{base} {addition}".strip()
+
+
 def _env(name: str, default: str) -> str:
     """Get env var, also checking for names with trailing whitespace (Unraid quirk)."""
     val = os.getenv(name)
@@ -1754,6 +1776,110 @@ async def get_device_metrics(mac: str, db: Database = Depends(get_db)):
     metrics["mac"] = mac
     metrics["name"] = device.get("name")
     metrics["linked"] = True
+
+    transfer = transfer or {}
+    now = datetime.now().astimezone()
+    now_iso = now.isoformat()
+    stall_threshold_seconds = max(int(_env("INSTALL_STALL_THRESHOLD_SECONDS", "180") or 180), 30)
+
+    network = metrics.get("network") or {}
+    disk_io = metrics.get("disk_io") or {}
+    connection = metrics.get("connection") or {}
+
+    observed_total_bytes = None
+    observed_source = "none"
+    rx = network.get("rx_bytes")
+    tx = network.get("tx_bytes")
+    if isinstance(rx, int) and isinstance(tx, int):
+        observed_total_bytes = int(rx) + int(tx)
+        observed_source = "network_total"
+    else:
+        read_bytes = disk_io.get("read_bytes")
+        write_bytes = disk_io.get("write_bytes")
+        if isinstance(read_bytes, int) and isinstance(write_bytes, int):
+            observed_total_bytes = int(read_bytes) + int(write_bytes)
+            observed_source = "disk_total"
+        elif isinstance(transfer.get("http_tx_bytes"), int):
+            observed_total_bytes = int(transfer.get("http_tx_bytes") or 0)
+            observed_source = "http_fallback"
+
+    previous_total = transfer.get("stall_last_total_bytes")
+    if not isinstance(previous_total, int):
+        previous_total = None
+
+    last_progress_at = transfer.get("stall_last_progress_at")
+    last_progress_dt = _parse_iso_timestamp(last_progress_at)
+    if last_progress_dt is not None and last_progress_dt.tzinfo is None:
+        last_progress_dt = last_progress_dt.astimezone()
+
+    stall_state = (transfer.get("stall_state") or "idle").strip().lower()
+    active_session = bool(connection.get("active"))
+    has_progress = False
+    stall_seconds = 0
+    stalled = False
+
+    if active_session and observed_total_bytes is not None:
+        if previous_total is None:
+            has_progress = True
+            last_progress_at = now_iso
+            db.update_device_transfer_fields(mac, {
+                "stall_last_total_bytes": observed_total_bytes,
+                "stall_last_progress_at": now_iso,
+                "stall_state": "active",
+            })
+        elif observed_total_bytes > previous_total:
+            has_progress = True
+            last_progress_at = now_iso
+            db.update_device_transfer_fields(mac, {
+                "stall_last_total_bytes": observed_total_bytes,
+                "stall_last_progress_at": now_iso,
+                "stall_state": "active",
+            })
+            if stall_state == "stalled":
+                db.add_boot_log(mac, "windows_install_resumed", f"I/O resumed after stall ({observed_source})")
+        else:
+            if last_progress_dt is None:
+                last_progress_dt = now
+                last_progress_at = now_iso
+                db.update_device_transfer_fields(mac, {
+                    "stall_last_progress_at": now_iso,
+                    "stall_last_total_bytes": observed_total_bytes,
+                    "stall_state": "active",
+                })
+            stall_seconds = max(int((now - last_progress_dt).total_seconds()), 0)
+            stalled = stall_seconds >= stall_threshold_seconds
+            db.update_device_transfer_fields(mac, {
+                "stall_last_total_bytes": observed_total_bytes,
+                "stall_state": "stalled" if stalled else "active",
+            })
+            if stalled and stall_state != "stalled":
+                db.add_boot_log(
+                    mac,
+                    "windows_install_stalled",
+                    f"No byte delta for {stall_seconds}s while iSCSI session is active ({observed_source})",
+                )
+    elif not active_session:
+        db.update_device_transfer_fields(mac, {"stall_state": "idle"})
+
+    if active_session and observed_total_bytes is not None and not has_progress and not stalled and last_progress_dt is not None:
+        stall_seconds = max(int((now - last_progress_dt).total_seconds()), 0)
+
+    metrics["install_progress"] = {
+        "active_session": active_session,
+        "stalled": stalled,
+        "stall_seconds": stall_seconds,
+        "threshold_seconds": stall_threshold_seconds,
+        "last_progress_at": last_progress_at or "",
+        "observed_total_bytes": observed_total_bytes,
+        "observed_source": observed_source,
+    }
+
+    if stalled:
+        metrics["warning"] = _append_warning(
+            metrics.get("warning", ""),
+            f"Install appears stalled: no byte growth for {stall_seconds}s while iSCSI session is active.",
+        )
+
     return metrics
 
 
