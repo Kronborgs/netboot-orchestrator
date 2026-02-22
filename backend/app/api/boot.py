@@ -128,6 +128,7 @@ goto :main
 set "LOG_URL=%~1"
 where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ $wc = New-Object System.Net.WebClient; $null = $wc.DownloadString($env:LOG_URL); exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && exit /b 0
 where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri $env:LOG_URL -Method Get | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && exit /b 0
+if defined HTTP_HELPER if exist "%HTTP_HELPER%" where cscript.exe >nul 2>&1 && cscript //nologo "%HTTP_HELPER%" get "%LOG_URL%" >nul 2>&1 && exit /b 0
 where curl.exe >nul 2>&1 && curl.exe -fsS "%LOG_URL%" >nul 2>&1 && exit /b 0
 exit /b 0
 
@@ -141,6 +142,7 @@ if defined SETUPACT_PATH (
     set UPLOAD_OK=
     where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ $wc = New-Object System.Net.WebClient; $null = $wc.UploadFile('{setupact_upload_url}', 'PUT', $env:SETUPACT_PATH); exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && set UPLOAD_OK=1
     if not defined UPLOAD_OK where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{setupact_upload_url}' -Method Put -InFile $env:SETUPACT_PATH | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && set UPLOAD_OK=1
+    if not defined UPLOAD_OK if defined HTTP_HELPER if exist "%HTTP_HELPER%" where cscript.exe >nul 2>&1 && cscript //nologo "%HTTP_HELPER%" put "{setupact_upload_url}" "%SETUPACT_PATH%" >nul 2>&1 && set UPLOAD_OK=1
     if not defined UPLOAD_OK where curl.exe >nul 2>&1 && curl.exe -fsS -X PUT --data-binary "@%SETUPACT_PATH%" "{setupact_upload_url}" >nul 2>&1 && set UPLOAD_OK=1
     if not defined UPLOAD_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_setupact /upload /priority normal "%SETUPACT_PATH%" "{setupact_upload_url}" >nul 2>&1 && set UPLOAD_OK=1
     if not defined UPLOAD_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_setupact2 /upload /priority normal "{setupact_upload_url}" "%SETUPACT_PATH%" >nul 2>&1 && set UPLOAD_OK=1
@@ -160,6 +162,7 @@ if defined SETUPERR_PATH (
     set ERR_OK=
     where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ $wc = New-Object System.Net.WebClient; $null = $wc.UploadFile('{setuperr_upload_url}', 'PUT', $env:SETUPERR_PATH); exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && set ERR_OK=1
     if not defined ERR_OK where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{setuperr_upload_url}' -Method Put -InFile $env:SETUPERR_PATH | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && set ERR_OK=1
+    if not defined ERR_OK if defined HTTP_HELPER if exist "%HTTP_HELPER%" where cscript.exe >nul 2>&1 && cscript //nologo "%HTTP_HELPER%" put "{setuperr_upload_url}" "%SETUPERR_PATH%" >nul 2>&1 && set ERR_OK=1
     if not defined ERR_OK where curl.exe >nul 2>&1 && curl.exe -fsS -X PUT --data-binary "@%SETUPERR_PATH%" "{setuperr_upload_url}" >nul 2>&1 && set ERR_OK=1
     if not defined ERR_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_setuperr /upload /priority normal "%SETUPERR_PATH%" "{setuperr_upload_url}" >nul 2>&1 && set ERR_OK=1
     if not defined ERR_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_setuperr2 /upload /priority normal "{setuperr_upload_url}" "%SETUPERR_PATH%" >nul 2>&1 && set ERR_OK=1
@@ -176,6 +179,7 @@ if not defined TRACE_ENABLED exit /b 0
 if not exist "%TRACE_FILE%" exit /b 0
 set TRACE_OK=
 where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri '{startnet_upload_url}' -Method Put -InFile $env:TRACE_FILE | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && set TRACE_OK=1
+if not defined TRACE_OK if defined HTTP_HELPER if exist "%HTTP_HELPER%" where cscript.exe >nul 2>&1 && cscript //nologo "%HTTP_HELPER%" put "{startnet_upload_url}" "%TRACE_FILE%" >nul 2>&1 && set TRACE_OK=1
 if not defined TRACE_OK where curl.exe >nul 2>&1 && curl.exe -fsS -X PUT --data-binary "@%TRACE_FILE%" "{startnet_upload_url}" >nul 2>&1 && set TRACE_OK=1
 if not defined TRACE_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_startnet /upload /priority normal "%TRACE_FILE%" "{startnet_upload_url}" >nul 2>&1 && set TRACE_OK=1
 if not defined TRACE_OK where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer nb_startnet2 /upload /priority normal "{startnet_upload_url}" "%TRACE_FILE%" >nul 2>&1 && set TRACE_OK=1
@@ -190,6 +194,36 @@ exit /b 0
 setlocal EnableExtensions EnableDelayedExpansion
 set "TRACE_FILE=X:\\netboot-startnet.log"
 set TRACE_ENABLED=1
+set "HTTP_HELPER=X:\\nb-http.vbs"
+where cscript.exe >nul 2>&1 && if not exist "%HTTP_HELPER%" (
+    (
+        echo On Error Resume Next
+        echo Dim a,m,u,f,x,s
+        echo Set a = WScript.Arguments
+        echo If a.Count ^< 2 Then WScript.Quit 2
+        echo m = LCase^(a^(0^)^)
+        echo u = a^(1^)
+        echo Set x = CreateObject^("MSXML2.ServerXMLHTTP.6.0"^)
+        echo If m = "get" Then
+        echo   x.open "GET", u, False
+        echo   x.send
+        echo   If x.status ^>= 200 And x.status ^< 300 Then WScript.Quit 0 Else WScript.Quit 1
+        echo End If
+        echo If m = "put" Then
+        echo   If a.Count ^< 3 Then WScript.Quit 2
+        echo   f = a^(2^)
+        echo   Set s = CreateObject^("ADODB.Stream"^)
+        echo   s.Type = 1
+        echo   s.Open
+        echo   s.LoadFromFile f
+        echo   x.open "PUT", u, False
+        echo   x.setRequestHeader "Content-Type", "text/plain"
+        echo   x.send s.Read
+        echo   If x.status ^>= 200 And x.status ^< 300 Then WScript.Quit 0 Else WScript.Quit 1
+        echo End If
+        echo WScript.Quit 2
+    ) > "%HTTP_HELPER%"
+)
 2>nul (echo [startnet] begin %DATE% %TIME% > "%TRACE_FILE%") || set TRACE_ENABLED=
 wpeinit
 wpeutil InitializeNetwork >nul 2>&1
