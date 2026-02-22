@@ -193,6 +193,17 @@ class Database:
     # Boot log operations
     def add_boot_log(self, mac: str, event: str, details: str = "", ip: str = "") -> Dict:
         """Record a boot event."""
+        if self._is_mac_like(mac) and not self.get_device(mac):
+            normalized = "".join(ch for ch in mac.upper() if ch in "0123456789ABCDEF")
+            self.create_device(mac, {
+                "device_type": "unknown",
+                "name": f"Auto-{normalized[-6:]}",
+                "enabled": True,
+                "image_id": None,
+                "kernel_set": "default",
+                "installation_target": "http",
+            })
+
         logs = self._read_json(self.boot_logs_file)
         if not isinstance(logs, list):
             logs = []
@@ -222,6 +233,11 @@ class Database:
     @staticmethod
     def _normalize_mac(mac: str) -> str:
         return (mac or "").strip().lower()
+
+    @staticmethod
+    def _is_mac_like(value: str) -> bool:
+        normalized = "".join(ch for ch in (value or "").lower() if ch in "0123456789abcdef")
+        return len(normalized) == 12
 
     def add_device_transfer(
         self,

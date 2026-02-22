@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { apiFetch } from '../api/client';
+import { apiFetch, getApiUrl } from '../api/client';
 
 interface Device {
   mac: string;
@@ -94,6 +94,40 @@ export const DeviceList: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    let source: EventSource | null = null;
+    let fallbackPoller: ReturnType<typeof setInterval> | null = null;
+
+    const startFallbackPolling = () => {
+      if (fallbackPoller) return;
+      fallbackPoller = setInterval(() => {
+        fetchDevices(true);
+      }, 10000);
+    };
+
+    try {
+      source = new EventSource(getApiUrl('/api/v1/devices/events'));
+      source.addEventListener('devices', () => {
+        fetchDevices(true);
+      });
+      source.onerror = () => {
+        if (source) {
+          source.close();
+          source = null;
+        }
+        startFallbackPolling();
+      };
+    } catch (err) {
+      console.warn('SSE unavailable, using polling fallback', err);
+      startFallbackPolling();
+    }
+
+    return () => {
+      if (source) source.close();
+      if (fallbackPoller) clearInterval(fallbackPoller);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!expandedMac) return;
 
     const metricsTimer = setInterval(() => {
@@ -140,9 +174,9 @@ export const DeviceList: React.FC = () => {
     return `${value.toFixed(1)} Mbps`;
   };
 
-  const fetchDevices = async () => {
+  const fetchDevices = async (silent: boolean = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const response = await apiFetch(`/api/v1/devices`);
       if (response.ok) {
         setDevices(await response.json());
@@ -152,7 +186,7 @@ export const DeviceList: React.FC = () => {
       setError('Failed to fetch devices');
       console.error(err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 

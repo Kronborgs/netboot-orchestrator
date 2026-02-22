@@ -2,6 +2,8 @@ from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Query, 
 from fastapi.responses import FileResponse, PlainTextResponse, Response, StreamingResponse
 from typing import List
 from pathlib import Path
+import asyncio
+import json
 from ..models import (
     Device, Image, KernelSet, OSInstaller, DeviceType,
     UnknownDevice, DeviceAssignment, OSInstallerFile
@@ -72,6 +74,55 @@ async def get_app_version():
 async def list_devices(db: Database = Depends(get_db)):
     """List all registered devices."""
     return db.get_all_devices()
+
+
+@router.get("/devices/events")
+async def stream_device_events(db: Database = Depends(get_db)):
+    """Server-sent events for device/boot activity changes."""
+
+    async def event_stream():
+        last_signature = ""
+
+        while True:
+            try:
+                devices = db.get_all_devices()
+                latest_logs = db.get_boot_logs(limit=1)
+                latest = latest_logs[0] if latest_logs else {}
+
+                signature = (
+                    f"{len(devices)}|{latest.get('timestamp', '')}|"
+                    f"{latest.get('mac', '')}|{latest.get('event', '')}"
+                )
+
+                if signature != last_signature:
+                    payload = {
+                        "device_count": len(devices),
+                        "last_event": latest.get("event", ""),
+                        "mac": latest.get("mac", ""),
+                        "timestamp": latest.get("timestamp", ""),
+                    }
+                    yield "event: devices\n"
+                    yield f"data: {json.dumps(payload)}\n\n"
+                    last_signature = signature
+                else:
+                    yield ": keep-alive\n\n"
+
+                await asyncio.sleep(2)
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.warning(f"Device event stream tick failed: {exc}")
+                await asyncio.sleep(3)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/devices", response_model=dict)
