@@ -1817,6 +1817,26 @@ async def get_device_metrics(mac: str, db: Database = Depends(get_db)):
     has_progress = False
     stall_seconds = 0
     stalled = False
+    progress_log_every_seconds = max(int(_env("INSTALL_PROGRESS_LOG_INTERVAL_SECONDS", "30") or 30), 10)
+
+    session_started_at = (transfer.get("session_started_at") or "").strip()
+    session_started_dt = _parse_iso_timestamp(session_started_at)
+    if session_started_dt is not None and session_started_dt.tzinfo is None:
+        session_started_dt = session_started_dt.astimezone()
+
+    last_progress_log_at = (transfer.get("stall_last_progress_log_at") or "").strip()
+    last_progress_log_dt = _parse_iso_timestamp(last_progress_log_at)
+    if last_progress_log_dt is not None and last_progress_log_dt.tzinfo is None:
+        last_progress_log_dt = last_progress_log_dt.astimezone()
+
+    try:
+        log_dir = _mac_log_dir(mac)
+        has_winpe_logs = log_dir.exists() and any(entry.is_file() for entry in log_dir.glob("*"))
+    except Exception:
+        has_winpe_logs = False
+
+    winpe_missing_logged_at = (transfer.get("winpe_missing_logged_at") or "").strip()
+    winpe_missing_log_threshold_seconds = max(int(_env("WINPE_LOG_MISSING_THRESHOLD_SECONDS", "120") or 120), 30)
 
     if active_session and observed_total_bytes is not None:
         if previous_total is None:
@@ -1830,11 +1850,27 @@ async def get_device_metrics(mac: str, db: Database = Depends(get_db)):
         elif observed_total_bytes > previous_total:
             has_progress = True
             last_progress_at = now_iso
+            delta_bytes = observed_total_bytes - previous_total
             db.update_device_transfer_fields(mac, {
                 "stall_last_total_bytes": observed_total_bytes,
                 "stall_last_progress_at": now_iso,
                 "stall_state": "active",
             })
+
+            should_log_progress = (
+                last_progress_log_dt is None
+                or int((now - last_progress_log_dt).total_seconds()) >= progress_log_every_seconds
+            )
+            if should_log_progress:
+                db.add_boot_log(
+                    mac,
+                    "windows_install_progress",
+                    f"I/O +{delta_bytes} bytes ({observed_source}); total={observed_total_bytes} bytes",
+                )
+                db.update_device_transfer_fields(mac, {
+                    "stall_last_progress_log_at": now_iso,
+                })
+
             if stall_state == "stalled":
                 db.add_boot_log(mac, "windows_install_resumed", f"I/O resumed after stall ({observed_source})")
         else:
@@ -1861,6 +1897,16 @@ async def get_device_metrics(mac: str, db: Database = Depends(get_db)):
     elif not active_session:
         db.update_device_transfer_fields(mac, {"stall_state": "idle"})
 
+    if active_session and not has_winpe_logs and session_started_dt is not None:
+        session_age_seconds = max(int((now - session_started_dt).total_seconds()), 0)
+        if session_age_seconds >= winpe_missing_log_threshold_seconds and not winpe_missing_logged_at:
+            db.add_boot_log(
+                mac,
+                "winpe_log_missing",
+                f"No WinPE log files uploaded after {session_age_seconds}s from session start",
+            )
+            db.update_device_transfer_fields(mac, {"winpe_missing_logged_at": now_iso})
+
     if active_session and observed_total_bytes is not None and not has_progress and not stalled and last_progress_dt is not None:
         stall_seconds = max(int((now - last_progress_dt).total_seconds()), 0)
 
@@ -1879,6 +1925,14 @@ async def get_device_metrics(mac: str, db: Database = Depends(get_db)):
             metrics.get("warning", ""),
             f"Install appears stalled: no byte growth for {stall_seconds}s while iSCSI session is active.",
         )
+
+    if active_session and not has_winpe_logs and session_started_dt is not None:
+        session_age_seconds = max(int((now - session_started_dt).total_seconds()), 0)
+        if session_age_seconds >= winpe_missing_log_threshold_seconds:
+            metrics["warning"] = _append_warning(
+                metrics.get("warning", ""),
+                f"WinPE logs still missing after {session_age_seconds}s; check WinPE uploader path/startnet execution.",
+            )
 
     return metrics
 
