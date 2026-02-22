@@ -1154,7 +1154,7 @@ chain {base}/ipxe/menu
     san_urls = _build_iscsi_urls(boot_ip, target_name)
     san_url = san_urls[0]
     system_portal_ip, system_target_iqn = _parse_iscsi_san_url(san_url)
-    sanhook_cmd = " || ".join([f"sanhook --drive 0x80 {url}" for url in san_urls]) + " || goto windows_failed"
+    sanhook_cmd = " || ".join([f"sanhook --drive 0x80 {url}" for url in san_urls])
     logger.info(
         f"Windows install image resolved: mac={mac} image_id={device_image.get('id')} target={target_name} "
         f"san_candidates={san_urls}"
@@ -1179,7 +1179,7 @@ chain {base}/ipxe/menu
         iso_hook_cmd = (
             f"sanhook --drive 0xE0 {installer_iso_san_url} "
             f"|| sanhook --drive 0x81 {installer_iso_san_url} "
-            f"|| goto windows_failed"
+            f"|| echo  !! Optional installer media SAN attach failed in iPXE; WinPE will retry."
         )
         iso_info_line = f"echo  Installer media (0xE0/0x81): {installer_iso_san_url}"
         installer_log_value = installer_iso_san_url
@@ -1201,7 +1201,7 @@ chain {base}/ipxe/menu
             iso_hook_cmd = (
                 f"sanhook --drive 0xE0 {installer_iso_san_url} "
                 f"|| sanhook --drive 0x81 {installer_iso_san_url} "
-                f"|| goto windows_failed"
+                f"|| echo  !! Optional installer media SAN attach failed in iPXE; WinPE will retry."
             )
             iso_info_line = f"echo  Installer media (0xE0/0x81): {installer_iso_path}"
             installer_log_value = installer_iso_path
@@ -1332,7 +1332,7 @@ echo Acquiring DHCP lease...
 dhcp || goto windows_failed
 
 echo Attaching system iSCSI disk...
-{sanhook_cmd}
+{sanhook_cmd} || echo  !! System iSCSI SAN attach failed in iPXE; WinPE will retry via iSCSI initiator.
 
 {iso_hook_cmd}
 

@@ -30,7 +30,7 @@ function App() {
     fetch(apiUrl)
       .then(res => res.json())
       .then(data => setVersion(data.version || ''))
-        .catch(() => setVersion('2026-02-22-V167'));
+        .catch(() => setVersion('2026-02-22-V168'));
   }, []);
 
   return (
