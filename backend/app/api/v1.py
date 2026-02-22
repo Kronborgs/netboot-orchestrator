@@ -593,6 +593,7 @@ async def download_os_installer(
     file_path: str,
     request: Request,
     mac: str = Query(""),
+    sid: str = Query(""),
     db: Database = Depends(get_db),
     file_service: FileService = Depends(get_file_service),
 ):
@@ -607,6 +608,13 @@ async def download_os_installer(
     try:
         full_path = _resolve_installer_path(file_path)
         file_size = full_path.stat().st_size
+
+        can_attribute_transfer = False
+        if mac:
+            transfer = db.get_device_transfer(mac)
+            active_sid = str((transfer or {}).get("session_id") or "").strip()
+            provided_sid = (sid or "").strip()
+            can_attribute_transfer = bool(active_sid and provided_sid and provided_sid == active_sid)
 
         # Check for Range header (iPXE sanboot uses this)
         range_header = request.headers.get("range")
@@ -624,7 +632,7 @@ async def download_os_installer(
                     )
                 end = min(end, file_size - 1)
                 content_length = end - start + 1
-                if mac:
+                if mac and can_attribute_transfer:
                     db.add_device_transfer(
                         mac=mac,
                         protocol="http",
@@ -659,7 +667,7 @@ async def download_os_installer(
                 )
 
         # No Range header -> serve full file
-        if mac:
+        if mac and can_attribute_transfer:
             db.add_device_transfer(
                 mac=mac,
                 protocol="http",

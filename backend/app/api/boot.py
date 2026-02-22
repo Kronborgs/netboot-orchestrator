@@ -1256,9 +1256,15 @@ async def boot_ipxe_windows_install(
     winpe_root = _env("WINDOWS_WINPE_PATH", "winpe").strip().strip("/")
     os_installers_path = Path(_env("OS_INSTALLERS_PATH", "/data/os-installers"))
     logger.info(f"Windows install requested: mac={mac} boot_ip={boot_ip} winpe_root={winpe_root} os_installers_path={os_installers_path}")
+    transfer_session_id = ""
     if mac:
-        db.reset_device_transfer(mac)
-        db.add_boot_log(mac, "transfer_reset", "Reset HTTP/iSCSI counters for new Windows install session")
+        reset_state = db.reset_device_transfer(mac)
+        transfer_session_id = (reset_state or {}).get("session_id", "")
+        db.add_boot_log(
+            mac,
+            "transfer_reset",
+            f"Reset HTTP/iSCSI counters for new Windows install session sid={transfer_session_id or 'none'}",
+        )
     required_rel = [
         f"{winpe_root}/wimboot",
         f"{winpe_root}/boot/BCD",
@@ -1369,7 +1375,13 @@ chain {base}/ipxe/menu
     )
 
     mac_encoded = quote(mac or "", safe='')
-    mac_qs = f"?mac={mac_encoded}" if mac_encoded else ""
+    sid_encoded = quote(transfer_session_id, safe='') if transfer_session_id else ""
+    query_parts = []
+    if mac_encoded:
+        query_parts.append(f"mac={mac_encoded}")
+    if sid_encoded:
+        query_parts.append(f"sid={sid_encoded}")
+    mac_qs = f"?{'&'.join(query_parts)}" if query_parts else ""
     wimboot_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[0], safe='/')}{mac_qs}"
     bcd_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[1], safe='/')}{mac_qs}"
     sdi_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[2], safe='/')}{mac_qs}"

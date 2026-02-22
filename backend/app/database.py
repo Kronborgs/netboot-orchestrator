@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from uuid import uuid4
 
 
 class Database:
@@ -378,7 +379,9 @@ class Database:
         existing["iscsi_requests"] = 0
         existing["last_path"] = ""
         existing["last_protocol"] = ""
+        existing["last_remote_ip"] = ""
         existing["session_started_at"] = self._now_iso()
+        existing["session_id"] = str(uuid4())
         existing["last_seen"] = self._now_iso()
 
         data[key] = existing
