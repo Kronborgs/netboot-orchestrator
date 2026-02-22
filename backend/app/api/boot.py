@@ -139,6 +139,7 @@ wpeinit
 wpeutil InitializeNetwork >nul 2>&1
 call :trace wpeinit completed
 call :log_http "{log_url_base}winpe_startnet_started"
+call :upload_trace
 echo.
 echo ================================================
 echo  Netboot Orchestrator - Windows Setup Autostart
@@ -209,9 +210,23 @@ echo Found installer media on %DRIVE%:
 call :trace launching setup from %SETUP_PATH%
 call :log_setup %DRIVE%
 call :upload_setupact
-start /wait "" %SETUP_PATH%
-set SETUP_EXIT=!errorlevel!
+call :upload_trace
+start "" %SETUP_PATH%
+set SETUP_EXIT=running
+for /L %%S in (1,1,180) do (
+    ping -n 6 127.0.0.1 >nul 2>&1
+    call :upload_setupact
+    call :upload_trace
+    where tasklist.exe >nul 2>&1
+    if not errorlevel 1 (
+        tasklist /FI "IMAGENAME eq setup.exe" 2>nul | find /I "setup.exe" >nul 2>&1
+        if errorlevel 1 goto :setup_done
+    )
+)
+
+:setup_done
 call :upload_setupact
+call :upload_trace
 call :log_setup_exit !SETUP_EXIT!
 exit /b 0
 
