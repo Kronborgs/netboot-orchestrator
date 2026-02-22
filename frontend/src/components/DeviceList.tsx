@@ -624,7 +624,7 @@ export const DeviceList: React.FC = () => {
                           </div>
 
                           <div style={{ background: 'var(--bg-secondary)', padding: '12px', borderRadius: '8px' }}>
-                            <div style={{ fontWeight: 600, marginBottom: '8px' }}>Device Logs (MAC)</div>
+                            <div style={{ fontWeight: 600, marginBottom: '8px' }}>4 all Devices - Logs Realtid</div>
                             {(winpeLogsByMac[device.mac] || []).length > 0 && (
                               <div style={{ marginBottom: '10px', paddingBottom: '10px', borderBottom: '1px solid var(--border-color)' }}>
                                 <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px' }}>
