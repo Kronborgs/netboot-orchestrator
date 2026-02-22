@@ -496,6 +496,24 @@ def _winpe_logs_root() -> Path:
     return Path(_env("WINPE_LOGS_PATH", "/data/winpe-logs"))
 
 
+def _logo_candidates() -> list[Path]:
+    repo_root = Path(__file__).parent.parent.parent.parent
+    return [
+        Path("/app/docs/logo.png"),
+        repo_root / "docs" / "logo.png",
+        Path("/data/logo.png"),
+    ]
+
+
+@router.get("/ipxe/logo.png")
+async def ipxe_logo_png():
+    """Serve branding logo for iPXE menu background when available."""
+    for candidate in _logo_candidates():
+        if candidate.exists() and candidate.is_file():
+            return FileResponse(path=candidate, media_type="image/png", filename="logo.png")
+    raise HTTPException(status_code=404, detail="Logo not found")
+
+
 def _mac_log_dir(mac: str) -> Path:
     normalized = _normalize_mac(mac)
     if len(normalized) != 12:
@@ -620,6 +638,8 @@ async def boot_ipxe_main_menu(db: Database = Depends(get_db)):
     """Main iPXE boot menu — entry point for all PXE clients."""
     version = get_version()
     base = _menu_base_url()
+    boot_ip = _env("BOOT_SERVER_IP", "192.168.1.50")
+    logo_url = f"http://{boot_ip}:8000/api/v1/boot/ipxe/logo.png"
 
     # Log boot event
     db.add_boot_log("unknown", "menu_loaded", "Main menu loaded")
@@ -627,29 +647,32 @@ async def boot_ipxe_main_menu(db: Database = Depends(get_db)):
     script = f"""#!ipxe
 # {BRANDING}
 
+set menu-timeout 30000
+console --picture {logo_url} ||
+
 :main_menu
-menu ========= Netboot Orchestrator v{version} =========
+menu ======== Netboot Orchestrator v{version} ========
 item --gap --
 item --gap --  Designed by Kenneth Kronborg AI Team
 item --gap --
-item --gap --  Device Info:
-item --gap --  MAC:     ${{net0/mac}}
-item --gap --  IP:      ${{net0/ip}}
-item --gap --  Gateway: ${{net0/gateway}}
+item --gap --  SYSTEM
+item --gap --  MAC      : ${{net0/mac}}
+item --gap --  IP       : ${{net0/ip}}
+item --gap --  GATEWAY  : ${{net0/gateway}}
 item --gap --
-item --gap --  ==== Main Menu ====
-item os_install    OS Installers  >>
-item create_iscsi  Create iSCSI Image  >>
-item link_iscsi    Link Device to iSCSI Image  >>
+item --gap --  DEPLOYMENT
+item os_install    OS Installers                    >>
+item create_iscsi  Create iSCSI Image               >>
+item link_iscsi    Link Device to iSCSI Image       >>
 item boot_iscsi    Boot from iSCSI
 item win_install   Windows Install (WinPE + iSCSI)  >>
 item --gap --
-item --gap --  ==== Info & Tools ====
+item --gap --  TOOLS
 item shell         iPXE Shell
 item device_info   Device Info
 item reboot        Reboot
 item --gap --
-choose selected || goto shell
+choose --timeout ${{menu-timeout}} selected || goto shell
 goto ${{selected}}
 
 :os_install
