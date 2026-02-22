@@ -147,53 +147,14 @@ echo Searching for installer media (auto mode)...
 
 {iscsi_attach_block}
 
-if exist E:\setup.exe (
-    call :trace found setup.exe on E:
-    call :log_setup E
-    call :upload_setupact
-    start /wait "" E:\setup.exe
-    set SETUP_EXIT=!errorlevel!
-    call :upload_setupact
-    call :log_setup_exit !SETUP_EXIT!
-    goto :done
-)
-
-if exist E:\sources\setup.exe (
-    call :trace found setup.exe on E:\sources
-    call :log_setup E
-    call :upload_setupact
-    start /wait "" E:\sources\setup.exe
-    set SETUP_EXIT=!errorlevel!
-    call :upload_setupact
-    call :log_setup_exit !SETUP_EXIT!
-    goto :done
-)
+call :try_launch_installer E
+if not errorlevel 1 goto :done
 
 for /L %%R in (1,1,60) do (
     wpeutil UpdateBootInfo >nul 2>&1
     for %%L in (C D E F G H I J K L M N O P Q R S T U V W X Y Z) do (
-        if exist %%L:\setup.exe (
-            echo Found installer on %%L:
-            call :trace found setup.exe on %%L:
-            call :log_setup %%L
-            call :upload_setupact
-            start /wait "" %%L:\setup.exe
-            set SETUP_EXIT=!errorlevel!
-            call :upload_setupact
-            call :log_setup_exit !SETUP_EXIT!
-            goto :done
-        )
-        if exist %%L:\sources\setup.exe (
-            echo Found installer on %%L:\sources
-            call :trace found setup.exe on %%L:\sources
-            call :log_setup %%L
-            call :upload_setupact
-            start /wait "" %%L:\sources\setup.exe
-            set SETUP_EXIT=!errorlevel!
-            call :upload_setupact
-            call :log_setup_exit !SETUP_EXIT!
-            goto :done
-        )
+        call :try_launch_installer %%L
+        if not errorlevel 1 goto :done
     )
     ping -n 3 127.0.0.1 >nul 2>&1
 )
@@ -214,6 +175,44 @@ exit /b 0
 set DRIVE=%1
 set "EVENT_URL={log_url_base}auto_setup_started_drive_%DRIVE%"
 call :log_http "!EVENT_URL!"
+exit /b 0
+
+:try_launch_installer
+set DRIVE=%1
+set HAS_SETUP=
+set HAS_INSTALL_IMAGE=
+set SETUP_PATH=
+
+if exist %DRIVE%:\setup.exe (
+    set HAS_SETUP=1
+    set SETUP_PATH=%DRIVE%:\setup.exe
+)
+if exist %DRIVE%:\sources\setup.exe (
+    set HAS_SETUP=1
+    if not defined SETUP_PATH set SETUP_PATH=%DRIVE%:\sources\setup.exe
+)
+
+if not defined HAS_SETUP exit /b 1
+
+if exist %DRIVE%:\sources\install.wim set HAS_INSTALL_IMAGE=1
+if exist %DRIVE%:\sources\install.esd set HAS_INSTALL_IMAGE=1
+for %%I in (%DRIVE%:\sources\install*.swm) do (
+    if exist %%~I set HAS_INSTALL_IMAGE=1
+)
+
+if not defined HAS_INSTALL_IMAGE (
+    call :trace skip drive %DRIVE%: setup found but no install.wim/esd/swm
+    exit /b 1
+)
+
+echo Found installer media on %DRIVE%:
+call :trace launching setup from %SETUP_PATH%
+call :log_setup %DRIVE%
+call :upload_setupact
+start /wait "" %SETUP_PATH%
+set SETUP_EXIT=!errorlevel!
+call :upload_setupact
+call :log_setup_exit !SETUP_EXIT!
 exit /b 0
 
 :attach_iscsi
