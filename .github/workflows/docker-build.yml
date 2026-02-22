@@ -113,17 +113,6 @@ jobs:
           echo "Source version: $SOURCE_VERSION"
           echo "Build version:  $BUILD_VERSION"
 
-      - name: Resolve latest tag policy
-        id: latest_policy
-        run: |
-          PUSH_LATEST=false
-          if [[ "${GITHUB_REF}" =~ ^refs/tags/[0-9]{4}-[0-9]{2}-[0-9]{2}-V[0-9]+$ ]]; then
-            PUSH_LATEST=true
-          fi
-
-          echo "push_latest=$PUSH_LATEST" >> $GITHUB_OUTPUT
-          echo "Latest tag enabled: $PUSH_LATEST"
-
       - name: Extract metadata (tags, labels)
         id: meta
         uses: docker/metadata-action@v5
@@ -134,7 +123,7 @@ jobs:
             type=raw,value=${{ steps.version.outputs.source_version }}
             type=raw,value=${{ steps.version.outputs.build_version }}
             type=sha
-            type=raw,value=latest,enable=${{ steps.latest_policy.outputs.push_latest }}
+            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push all-in-one image
         uses: docker/build-push-action@v5
