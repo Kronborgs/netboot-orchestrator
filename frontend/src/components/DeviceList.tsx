@@ -260,6 +260,7 @@ export const DeviceList: React.FC = () => {
 
   const fetchDeviceDetails = async (mac: string, includeLogs: boolean) => {
     try {
+      let currentSessionStartedAt: string | undefined;
       const requests: Promise<Response>[] = [
         apiFetch(`/api/v1/boot/devices/${encodeURIComponent(mac)}/metrics`)
       ];
@@ -273,6 +274,7 @@ export const DeviceList: React.FC = () => {
 
       if (metricsRes.ok) {
         const data = await metricsRes.json();
+        currentSessionStartedAt = data?.boot_transfer?.session_started_at;
         const nowMs = Date.now();
 
         setPreviousSamplesByMac((previousSamples) => {
@@ -329,7 +331,15 @@ export const DeviceList: React.FC = () => {
 
       if (includeLogs && responses[1] && responses[1].ok) {
         const logsData = await responses[1].json();
-        setLogsByMac(prev => ({ ...prev, [mac]: logsData || [] }));
+        const rawLogs: DeviceLog[] = logsData || [];
+        const sessionStartMs = currentSessionStartedAt ? new Date(currentSessionStartedAt).getTime() : NaN;
+        const filteredLogs = Number.isFinite(sessionStartMs)
+          ? rawLogs.filter((entry) => {
+              const entryMs = new Date(entry.timestamp).getTime();
+              return !Number.isNaN(entryMs) && entryMs >= (sessionStartMs - 2000);
+            })
+          : rawLogs;
+        setLogsByMac(prev => ({ ...prev, [mac]: filteredLogs }));
       }
 
       if (includeLogs && responses[2] && responses[2].ok) {
