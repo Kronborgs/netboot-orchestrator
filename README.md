@@ -97,7 +97,7 @@ docker run -d --name netboot --network host --privileged \
      │                                   │           │
      └───────────────┬────────────────────┴───────────┘
                      │
-**Version**: 2026-02-22-V175
+**Version**: 2026-02-22-V176
         │  netboot-orchestrator (Single Container) │
         │  (Host Network, Privileged)           │
         ├─────────────────────────────────────┤
@@ -540,6 +540,6 @@ If you find this project useful, please consider giving it a star! It helps othe
 
 **Repository**: [Kronborgs/netboot-orchestrator](https://github.com/Kronborgs/netboot-orchestrator)
 
-**Version**: 2026-02-22-V175
+**Version**: 2026-02-22-V176
 
 **Last Updated**: February 22, 2026
