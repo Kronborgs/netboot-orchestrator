@@ -1963,6 +1963,30 @@ async def get_device_metrics(mac: str, db: Database = Depends(get_db)):
     return metrics
 
 
+@router.post("/devices/{mac}/transfer/reset")
+async def reset_device_transfer_state(mac: str, db: Database = Depends(get_db)):
+    """Manually reset stale transfer/session telemetry for a specific device."""
+    device = db.get_device(mac)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    reset_state = db.reset_device_transfer(mac)
+    db.update_device_transfer_fields(mac, {
+        "stall_state": "idle",
+        "stall_last_total_bytes": 0,
+        "stall_last_progress_at": "",
+        "stall_last_progress_log_at": "",
+        "winpe_missing_logged_at": "",
+    })
+    db.add_boot_log(mac, "transfer_state_reset", "Manual transfer/session state reset from WebUI/API")
+
+    return {
+        "success": True,
+        "mac": mac,
+        "session_id": (reset_state or {}).get("session_id", ""),
+    }
+
+
 # =====================================================================
 #  iSCSI REST API (for WebUI)
 # =====================================================================

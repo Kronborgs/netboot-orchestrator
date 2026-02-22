@@ -90,6 +90,7 @@ export const DeviceList: React.FC = () => {
   const [logsByMac, setLogsByMac] = useState<Record<string, DeviceLog[]>>({});
   const [winpeLogsByMac, setWinpeLogsByMac] = useState<Record<string, WinpeLogFile[]>>({});
   const [detailsLoadingByMac, setDetailsLoadingByMac] = useState<Record<string, boolean>>({});
+  const [resettingTransferByMac, setResettingTransferByMac] = useState<Record<string, boolean>>({});
   const [previousSamplesByMac, setPreviousSamplesByMac] = useState<Record<string, DeviceRateSample>>({});
   const [formData, setFormData] = useState({
     mac: '',
@@ -364,6 +365,25 @@ export const DeviceList: React.FC = () => {
     }
   };
 
+  const resetTransferState = async (mac: string) => {
+    setResettingTransferByMac((prev) => ({ ...prev, [mac]: true }));
+    try {
+      const res = await apiFetch(`/api/v1/boot/devices/${encodeURIComponent(mac)}/transfer/reset`, {
+        method: 'POST'
+      });
+      if (res.ok) {
+        await fetchDeviceDetails(mac, true);
+      } else {
+        setError('Failed to reset transfer state');
+      }
+    } catch (err) {
+      setError('Failed to reset transfer state');
+      console.error(err);
+    } finally {
+      setResettingTransferByMac((prev) => ({ ...prev, [mac]: false }));
+    }
+  };
+
   if (error) {
     return <div className="card" style={{ color: 'var(--danger-color)' }}>❌ {error}</div>;
   }
@@ -568,6 +588,24 @@ export const DeviceList: React.FC = () => {
                                 )}
                                 <div style={{ marginTop: '4px', fontSize: '12px', color: 'var(--text-secondary)' }}>
                                   Sources: disk={metricsByMac[device.mac]?.disk_io?.source || 'unknown'}, net={metricsByMac[device.mac]?.network?.source || 'unknown'}
+                                </div>
+                                <div style={{ marginTop: '8px' }}>
+                                  <button
+                                    className="btn-small"
+                                    onClick={() => resetTransferState(device.mac)}
+                                    disabled={!!resettingTransferByMac[device.mac]}
+                                    style={{
+                                      background: 'var(--bg-tertiary)',
+                                      color: 'white',
+                                      border: '1px solid var(--border-color)',
+                                      padding: '4px 8px',
+                                      fontSize: '12px',
+                                      cursor: resettingTransferByMac[device.mac] ? 'not-allowed' : 'pointer',
+                                      opacity: resettingTransferByMac[device.mac] ? 0.7 : 1,
+                                    }}
+                                  >
+                                    {resettingTransferByMac[device.mac] ? 'Resetting...' : 'Reset transfer state'}
+                                  </button>
                                 </div>
                                 {metricsByMac[device.mac]?.warning && (
                                   <div style={{ marginTop: '8px', color: 'var(--warning-color)', fontSize: '12px' }}>
