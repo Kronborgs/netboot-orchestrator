@@ -385,6 +385,10 @@ class IscsiService:
 
         return result
 
+    def get_iscsi_socket_counters(self) -> Dict[str, Dict[str, int]]:
+        """Public accessor for current iSCSI socket counters keyed by remote IP."""
+        return self._get_iscsi_socket_counters()
+
     def _register_target(self, name: str, file_path: Path) -> tuple:
         """Register a file as a tgtd iSCSI target. Returns (tid, target_name, error)."""
         tid = self._get_next_tid()

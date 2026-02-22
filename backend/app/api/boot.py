@@ -1798,8 +1798,6 @@ async def get_device_metrics(mac: str, db: Database = Depends(get_db)):
     network = metrics.get("network") or {}
     disk_io = metrics.get("disk_io") or {}
     connection = metrics.get("connection") or {}
-    attribution_confidence = (metrics.get("attribution_confidence") or "unknown").strip().lower()
-    stall_measurement_allowed = attribution_confidence == "high"
 
     recent_transfer_window_seconds = max(int(_env("METRICS_RECENT_TRANSFER_SECONDS", "300") or 300), 30)
     last_transfer_seen = (transfer.get("last_seen") or "").strip()
@@ -1810,6 +1808,68 @@ async def get_device_metrics(mac: str, db: Database = Depends(get_db)):
         last_transfer_dt is not None and
         int((now - last_transfer_dt).total_seconds()) <= recent_transfer_window_seconds
     )
+
+    def _is_unique_recent_ip_owner(remote_ip: str) -> bool:
+        candidate_ip = (remote_ip or "").strip()
+        if not candidate_ip:
+            return False
+
+        for other in db.get_all_devices():
+            other_mac = (other.get("mac") or "").strip().lower()
+            if not other_mac or other_mac == mac.lower():
+                continue
+
+            other_transfer = db.get_device_transfer(other_mac)
+            if not other_transfer:
+                continue
+
+            other_ip = (other_transfer.get("last_remote_ip") or "").strip()
+            if other_ip != candidate_ip:
+                continue
+
+            other_seen_raw = (other_transfer.get("last_seen") or "").strip()
+            other_seen_dt = _parse_iso_timestamp(other_seen_raw)
+            if other_seen_dt is None:
+                continue
+            if other_seen_dt.tzinfo is None:
+                other_seen_dt = other_seen_dt.astimezone()
+
+            age_seconds = int((now - other_seen_dt).total_seconds())
+            if age_seconds <= recent_transfer_window_seconds:
+                return False
+
+        return True
+
+    if bool(connection.get("active")) and has_recent_transfer and metrics.get("network", {}).get("source") in {"unavailable", "http_transfer_aggregate"}:
+        candidate_ip = (transfer.get("last_remote_ip") or "").strip()
+        remote_ips = list((connection or {}).get("remote_ips") or [])
+        if not candidate_ip and len(remote_ips) == 1:
+            candidate_ip = remote_ips[0]
+
+        if candidate_ip and _is_unique_recent_ip_owner(candidate_ip):
+            socket_stats = iscsi.get_iscsi_socket_counters()
+            entry = socket_stats.get(candidate_ip) or {}
+            hinted_rx = int(entry.get("rx_bytes", 0) or 0)
+            hinted_tx = int(entry.get("tx_bytes", 0) or 0)
+            if hinted_rx > 0 or hinted_tx > 0:
+                metrics["network"] = {
+                    "rx_bytes": hinted_rx,
+                    "tx_bytes": hinted_tx,
+                    "source": "socket_counters_mac_hint",
+                }
+                if metrics.get("disk_io", {}).get("source") == "unavailable":
+                    metrics["disk_io"] = {
+                        "read_bytes": hinted_tx,
+                        "write_bytes": hinted_rx,
+                        "source": "socket_counters_mac_hint_estimate",
+                    }
+                metrics["attribution_confidence"] = "medium"
+
+    network = metrics.get("network") or {}
+    disk_io = metrics.get("disk_io") or {}
+    connection = metrics.get("connection") or {}
+    attribution_confidence = (metrics.get("attribution_confidence") or "unknown").strip().lower()
+    stall_measurement_allowed = attribution_confidence in {"high", "medium"}
 
     if bool(connection.get("active")) and attribution_confidence != "high" and not has_recent_transfer:
         connection["active"] = False
