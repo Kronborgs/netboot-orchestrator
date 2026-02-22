@@ -134,7 +134,7 @@ exit /b 0
 
 :ensure_http_helper
 if defined HTTP_HELPER_READY exit /b 0
-set "HTTP_HELPER=X:\nb-http.vbs"
+set "HTTP_HELPER=X:\\nb-http.vbs"
 if not exist "%HTTP_HELPER%" (
     (
         echo On Error Resume Next
