@@ -129,9 +129,6 @@ set "LOG_URL=%~1"
 where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ $wc = New-Object System.Net.WebClient; $null = $wc.DownloadString($env:LOG_URL); exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && exit /b 0
 where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri $env:LOG_URL -Method Get | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && exit /b 0
 where curl.exe >nul 2>&1 && curl.exe -fsS "%LOG_URL%" >nul 2>&1 && exit /b 0
-set "LOG_TMP=X:\\nb-log-%RANDOM%.tmp"
-set "LOG_JOB=nb_log_%RANDOM%"
-where bitsadmin.exe >nul 2>&1 && bitsadmin /transfer "%LOG_JOB%" /download /priority foreground "%LOG_URL%" "%LOG_TMP%" >nul 2>&1 && (if exist "%LOG_TMP%" del /q "%LOG_TMP%" >nul 2>&1) && exit /b 0
 exit /b 0
 
 :upload_setup
