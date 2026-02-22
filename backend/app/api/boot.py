@@ -121,6 +121,16 @@ if not "%INSTALLER_TARGET%"=="" (
     )
 
     script = f"""@echo off
+goto :main
+
+:log_http
+set "LOG_URL=%~1"
+where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ $wc = New-Object System.Net.WebClient; $null = $wc.DownloadString($env:LOG_URL); exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && exit /b 0
+where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri $env:LOG_URL -Method Get | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && exit /b 0
+where curl.exe >nul 2>&1 && curl.exe -fsS "%LOG_URL%" >nul 2>&1 && exit /b 0
+exit /b 0
+
+:main
 setlocal EnableExtensions EnableDelayedExpansion
 set "TRACE_FILE=X:\\netboot-startnet.log"
 set TRACE_ENABLED=1
@@ -286,13 +296,6 @@ if defined TRACE_OK (
 ) else (
     call :log_http "{log_url_base}startnet_upload_failed"
 )
-exit /b 0
-
-:log_http
-set "LOG_URL=%~1"
-where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ $wc = New-Object System.Net.WebClient; $null = $wc.DownloadString($env:LOG_URL); exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && exit /b 0
-where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri $env:LOG_URL -Method Get | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && exit /b 0
-where curl.exe >nul 2>&1 && curl.exe -fsS "%LOG_URL%" >nul 2>&1 && exit /b 0
 exit /b 0
 """
     return PlainTextResponse(script)
