@@ -78,7 +78,6 @@ RUN rm -f /etc/nginx/sites-enabled/default && \
 # Copy FastAPI backend
 COPY backend /app/backend/
 COPY VERSION /app/VERSION
-RUN if [ -n "$BUILD_VERSION" ]; then echo "$BUILD_VERSION" > /app/VERSION; fi
 
 # Copy entrypoint
 COPY netboot/entrypoint-backend.sh /entrypoint.sh
