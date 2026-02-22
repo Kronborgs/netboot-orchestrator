@@ -123,6 +123,28 @@ class IscsiService:
             pass
         return values
 
+    @staticmethod
+    def _get_allocated_image_bytes(image_path: Path) -> Optional[int]:
+        """Return actual allocated bytes on disk for a sparse image file."""
+        try:
+            if not image_path.exists() or not image_path.is_file():
+                return None
+            result = subprocess.run(
+                ["du", "-B1", str(image_path)],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                return None
+            first = (result.stdout or "").strip().splitlines()
+            if not first:
+                return None
+            value = first[0].split()[0]
+            return int(value)
+        except Exception:
+            return None
+
     def _get_active_target_remote_ip_refcounts(self) -> Tuple[Dict[str, int], int]:
         """Return (remote_ip -> active target count, active target total)."""
         success, stdout, _ = self._run_cmd(
@@ -335,6 +357,25 @@ class IscsiService:
                 (base_result.get("warning", "") + " ").strip() +
                 "Per-device network bytes unavailable from current tgtd output."
             ).strip()
+
+        # Final fallback: for active sessions, use per-image allocated bytes on disk.
+        # This is deterministic per image/device and avoids cross-device contamination.
+        if base_result["connection"].get("active") and base_result["disk_io"].get("source") == "unavailable":
+            image_file = Path(image.get("file_path") or str(self.images_path / f"{image_name}.img"))
+            allocated_bytes = self._get_allocated_image_bytes(image_file)
+            if isinstance(allocated_bytes, int) and allocated_bytes >= 0:
+                base_result["disk_io"] = {
+                    "read_bytes": 0,
+                    "write_bytes": allocated_bytes,
+                    "source": "image_allocated_bytes",
+                }
+                if base_result.get("attribution_confidence") in {"unknown", "ambiguous"}:
+                    base_result["attribution_confidence"] = "medium"
+
+                base_result["warning"] = (
+                    (base_result.get("warning", "") + " ").strip() +
+                    "Using per-image allocated bytes as fallback write-progress metric."
+                ).strip()
 
         return base_result
 

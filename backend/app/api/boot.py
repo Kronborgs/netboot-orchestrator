@@ -1806,6 +1806,10 @@ async def get_device_metrics(mac: str, db: Database = Depends(get_db)):
         last_transfer_dt = last_transfer_dt.astimezone()
     has_recent_transfer = (
         last_transfer_dt is not None and
+        (
+            int(transfer.get("http_requests", 0) or 0) > 0
+            or int(transfer.get("iscsi_requests", 0) or 0) > 0
+        ) and
         int((now - last_transfer_dt).total_seconds()) <= recent_transfer_window_seconds
     )
 
@@ -1972,6 +1976,12 @@ async def get_device_metrics(mac: str, db: Database = Depends(get_db)):
         if isinstance(read_bytes, int) and isinstance(write_bytes, int):
             observed_total_bytes = int(read_bytes) + int(write_bytes)
             observed_source = "disk_total"
+        elif isinstance(write_bytes, int):
+            observed_total_bytes = int(write_bytes)
+            observed_source = "disk_write_only"
+        elif isinstance(tx, int):
+            observed_total_bytes = int(tx)
+            observed_source = "network_tx_only"
         elif isinstance(transfer.get("http_tx_bytes"), int):
             observed_total_bytes = int(transfer.get("http_tx_bytes") or 0)
             observed_source = "http_fallback"
