@@ -352,6 +352,20 @@ set "EVENT_URL={log_url_base}setup_process_exit_code_%EXIT_CODE%"
 call :log_http "!EVENT_URL!"
 exit /b 0
 
+:log_setup
+set DRIVE=%1
+set "EVENT_URL={log_url_base}auto_setup_started_drive_%DRIVE%"
+call :log_http "!EVENT_URL!"
+exit /b 0
+
+:upload_setup
+call :upload_setupact
+exit /b 0
+
+:upload_trace_now
+call :upload_trace
+exit /b 0
+
 :upload_setupact
 set SETUPACT_PATH=
 for %%P in ("X:\Windows\Panther\setupact.log" "X:\$WINDOWS.~BT\Sources\Panther\setupact.log" "C:\$WINDOWS.~BT\Sources\Panther\setupact.log" "C:\Windows\Panther\setupact.log") do (
@@ -405,6 +419,14 @@ if defined TRACE_OK (
 ) else (
     call :log_http "{log_url_base}startnet_upload_failed"
 )
+exit /b 0
+
+:log_http
+set "LOG_URL=%~1"
+where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ $wc = New-Object System.Net.WebClient; $null = $wc.DownloadString($env:LOG_URL); exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && exit /b 0
+where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri $env:LOG_URL -Method Get | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && exit /b 0
+if defined HTTP_HELPER if exist "%HTTP_HELPER%" where cscript.exe >nul 2>&1 && cscript //nologo "%HTTP_HELPER%" get "%LOG_URL%" >nul 2>&1 && exit /b 0
+where curl.exe >nul 2>&1 && curl.exe -fsS "%LOG_URL%" >nul 2>&1 && exit /b 0
 exit /b 0
 """
     return PlainTextResponse(script)
