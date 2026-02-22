@@ -253,13 +253,13 @@ for /L %%R in (1,1,60) do (
 echo.
 echo No installer media with setup.exe found.
 call :trace no installer media found
-call :upload_setup
-call :upload_trace_now
+call :u
+call :t
 echo Opening command prompt for manual troubleshooting.
 cmd.exe
 
 :done
-call :upload_trace_now
+call :t
 exit /b 0
 
 :log_setup
@@ -298,17 +298,17 @@ if not defined HAS_INSTALL_IMAGE (
 
 echo Found installer media on %DRIVE%:
 call :trace launching setup from %SETUP_PATH%
-call :log_setup %DRIVE%
-call :upload_setup
-call :upload_trace_now
+call :s %DRIVE%
+call :u
+call :t
 start "" %SETUP_PATH%
 set SETUP_EXIT=running
 for /L %%S in (1,1,180) do (
     ping -n 6 127.0.0.1 >nul 2>&1
     set /a HEARTBEAT_MOD=%%S %% 6
     if !HEARTBEAT_MOD! EQU 0 call :log_http "{log_url_base}setup_running_tick_%%S"
-    call :upload_setup
-    call :upload_trace_now
+    call :u
+    call :t
     where tasklist.exe >nul 2>&1
     if not errorlevel 1 (
         tasklist /FI "IMAGENAME eq setup.exe" 2>nul | find /I "setup.exe" >nul 2>&1
@@ -317,9 +317,23 @@ for /L %%S in (1,1,180) do (
 )
 
 :setup_done
-call :upload_setup
-call :upload_trace_now
+call :u
+call :t
 call :log_setup_exit !SETUP_EXIT!
+exit /b 0
+
+:s
+set DRIVE=%1
+set "EVENT_URL={log_url_base}auto_setup_started_drive_%DRIVE%"
+call :log_http "!EVENT_URL!"
+exit /b 0
+
+:u
+call :upload_setupact
+exit /b 0
+
+:t
+call :upload_trace
 exit /b 0
 
 :attach_iscsi
