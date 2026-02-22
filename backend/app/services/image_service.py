@@ -189,6 +189,7 @@ class IscsiService:
             "tid": tid,
             "stored_tid": stored_tid,
             "assigned_to": image.get("assigned_to"),
+            "attribution_confidence": "unknown",
             "connection": {
                 "active": False,
                 "session_count": 0,
@@ -258,9 +259,11 @@ class IscsiService:
         if read_bytes is not None:
             base_result["disk_io"]["read_bytes"] = int(read_bytes)
             base_result["disk_io"]["source"] = "target_stats"
+            base_result["attribution_confidence"] = "high"
         if write_bytes is not None:
             base_result["disk_io"]["write_bytes"] = int(write_bytes)
             base_result["disk_io"]["source"] = "target_stats"
+            base_result["attribution_confidence"] = "high"
 
         rx_bytes = self._extract_first_int(stdout, [
             r"rx[_\s-]*bytes\s*[:=]\s*(\d+)",
@@ -273,9 +276,11 @@ class IscsiService:
         if rx_bytes is not None:
             base_result["network"]["rx_bytes"] = int(rx_bytes)
             base_result["network"]["source"] = "target_stats"
+            base_result["attribution_confidence"] = "high"
         if tx_bytes is not None:
             base_result["network"]["tx_bytes"] = int(tx_bytes)
             base_result["network"]["source"] = "target_stats"
+            base_result["attribution_confidence"] = "high"
 
         # Fallback to active iSCSI TCP socket counters (per remote IP) when tgtd target stats
         # do not expose byte counters. This gives practical live transfer visibility per device.
@@ -308,6 +313,7 @@ class IscsiService:
                     base_result["network"]["rx_bytes"] = total_rx
                     base_result["network"]["tx_bytes"] = total_tx
                     base_result["network"]["source"] = "socket_counters"
+                    base_result["attribution_confidence"] = "high"
 
                 # iSCSI direction mapping (server perspective):
                 # tx -> client reads from disk, rx -> client writes to disk
@@ -315,7 +321,9 @@ class IscsiService:
                     base_result["disk_io"]["read_bytes"] = total_tx
                     base_result["disk_io"]["write_bytes"] = total_rx
                     base_result["disk_io"]["source"] = "socket_counters_estimate"
+                    base_result["attribution_confidence"] = "high"
             elif ambiguous_ips:
+                base_result["attribution_confidence"] = "ambiguous"
                 base_result["warning"] = (
                     (base_result.get("warning", "") + " ").strip() +
                     "Per-device iSCSI socket counters are ambiguous (shared initiator IP across active targets); "

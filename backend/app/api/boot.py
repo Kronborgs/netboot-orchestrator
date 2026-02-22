@@ -1785,6 +1785,8 @@ async def get_device_metrics(mac: str, db: Database = Depends(get_db)):
     network = metrics.get("network") or {}
     disk_io = metrics.get("disk_io") or {}
     connection = metrics.get("connection") or {}
+    attribution_confidence = (metrics.get("attribution_confidence") or "unknown").strip().lower()
+    stall_measurement_allowed = attribution_confidence == "high"
 
     observed_total_bytes = None
     observed_source = "none"
@@ -1838,7 +1840,10 @@ async def get_device_metrics(mac: str, db: Database = Depends(get_db)):
     winpe_missing_logged_at = (transfer.get("winpe_missing_logged_at") or "").strip()
     winpe_missing_log_threshold_seconds = max(int(_env("WINPE_LOG_MISSING_THRESHOLD_SECONDS", "120") or 120), 30)
 
-    if active_session and observed_total_bytes is not None:
+    if observed_source == "http_fallback":
+        stall_measurement_allowed = False
+
+    if active_session and observed_total_bytes is not None and stall_measurement_allowed:
         if previous_total is None:
             has_progress = True
             last_progress_at = now_iso
@@ -1896,6 +1901,8 @@ async def get_device_metrics(mac: str, db: Database = Depends(get_db)):
                 )
     elif not active_session:
         db.update_device_transfer_fields(mac, {"stall_state": "idle"})
+    elif active_session and not stall_measurement_allowed:
+        db.update_device_transfer_fields(mac, {"stall_state": "active_unattributed"})
 
     if active_session and not has_winpe_logs and session_started_dt is not None:
         session_age_seconds = max(int((now - session_started_dt).total_seconds()), 0)
@@ -1918,6 +1925,7 @@ async def get_device_metrics(mac: str, db: Database = Depends(get_db)):
         "last_progress_at": last_progress_at or "",
         "observed_total_bytes": observed_total_bytes,
         "observed_source": observed_source,
+        "attribution_confidence": attribution_confidence,
     }
 
     if stalled:
@@ -1933,6 +1941,12 @@ async def get_device_metrics(mac: str, db: Database = Depends(get_db)):
                 metrics.get("warning", ""),
                 f"WinPE logs still missing after {session_age_seconds}s; check WinPE uploader path/startnet execution.",
             )
+
+    if active_session and not stall_measurement_allowed:
+        metrics["warning"] = _append_warning(
+            metrics.get("warning", ""),
+            "Per-device install progress counters are not unique for this session; progress/stall log events are temporarily suppressed to avoid MAC mixup.",
+        )
 
     return metrics
 
