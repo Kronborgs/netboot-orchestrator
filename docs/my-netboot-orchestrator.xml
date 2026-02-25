@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>netboot-orchestrator</Name>
+  <Repository>ghcr.io/kronborgs/netboot-orchestrator:latest</Repository>
+  <Registry/>
+  <Network>host</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>true</Privileged>
+  <Support/>
+  <Project/>
+  <ReadMe/>
+  <Overview/>
+  <Category/>
+  <WebUI>http://[IP]:30000</WebUI>
+  <TemplateURL/>
+  <Icon>https://raw.githubusercontent.com/Kronborgs/netboot-orchestrator/main/docs/logo.png</Icon>
+  <ExtraParams>--cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SYS_ADMIN</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled>1771747853</DateInstalled>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="Data" Target="/data" Default="/mnt/user/appdata/netboot-orchestrator" Mode="rw" Description="" Type="Path" Display="always" Required="false" Mask="false">/mnt/user/appdata/netboot-orchestrator</Config>
+  <Config Name="ISOs" Target="/isos" Default="/mnt/user/isos" Mode="ro,slave" Description="" Type="Path" Display="always" Required="false" Mask="false">/mnt/user/isos</Config>
+  <Config Name="iSCSI Images" Target="/iscsi-images" Default="/mnt/user/appdata/netboot-orchestrator/iscsi-images" Mode="rw" Description="" Type="Path" Display="always" Required="false" Mask="false">/mnt/user/isos/iscsi-images</Config>
+  <Config Name="Boot Server IP&#9;" Target="BOOT_SERVER_IP&#9;" Default="192.168.1.50" Mode="" Description="" Type="Variable" Display="always" Required="false" Mask="false">192.168.1.50</Config>
+  <Config Name="DHCP Subnets" Target="DHCP_SUBNETS" Default="192.168.1.0,10.10.50.0" Mode="" Description="Subnets where Netboot need to function&#13;&#10;" Type="Variable" Display="always" Required="false" Mask="false">192.168.1.0,10.10.50.0</Config>
+  <Config Name="OS Installers Path" Target="OS_INSTALLERS_PATH" Default="/isos" Mode="" Description="" Type="Variable" Display="always" Required="false" Mask="false">/isos</Config>
+  <Config Name="iSCSI Images Path" Target="IMAGES_PATH" Default="/iscsi-images" Mode="" Description="" Type="Variable" Display="always" Required="false" Mask="false">/iscsi-images</Config>
+  <Config Name="WINDOWS_WINPE_PATH" Target="WINDOWS_WINPE_PATH" Default="" Mode="" Description="" Type="Variable" Display="always" Required="false" Mask="false">winpe</Config>
+  <Config Name="Time Zone" Target="TZ" Default="Europe/Copenhagen" Mode="" Description="Finde your Timezone her https://en.wikipedia.org/wiki/List_of_tz_database_time_zones" Type="Variable" Display="always" Required="false" Mask="false">Europe/Copenhagen</Config>
+  <TailscaleStateDir/>
+</Container>

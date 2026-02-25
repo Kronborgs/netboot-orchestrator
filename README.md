@@ -46,6 +46,10 @@ Then open:
 - Web GUI: `http://localhost:3000`
 - API docs: `http://localhost:8000/docs`
 
+### Unraid template (easy import)
+- Template file in repo: `docs/my-netboot-orchestrator.xml`
+- Direct raw download: `https://raw.githubusercontent.com/Kronborgs/netboot-orchestrator/main/docs/my-netboot-orchestrator.xml`
+
 ## Typical user workflow
 1. Add OS installer files under your mounted data path
 2. Open Web GUI and create/link iSCSI image to a device
@@ -76,13 +80,14 @@ This is useful when validating session attribution and fallback behavior across 
 - User quickstart: `docs/QUICKSTART.md`
 - Deployment details: `docs/DEPLOYMENT.md`
 - Unraid setup: `docs/UNRAID.md`
+- Unraid template XML: `docs/my-netboot-orchestrator.xml`
 - Data structures: `docs/DATA_STRUCTURE.md`
 - Boot flow: `docs/BOOT_FLOW.md`
 - Full technical handoff and architecture: `PROJECT_GUIDE.md`
 
 ## Versioning
 - Runtime version source-of-truth is the `VERSION` file in the repository/image
-- Current version: `2026-02-22-V207`
+- Current version: `2026-02-25-V208`
 
 ## Support
 For issues and feature requests, use GitHub Issues.

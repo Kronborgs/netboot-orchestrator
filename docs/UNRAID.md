@@ -28,6 +28,13 @@ This guide covers deploying Netboot Orchestrator on Unraid OS systems for networ
 
 ## Installation
 
+### Unraid Template (Recommended)
+
+Use the project template XML for quick import in Unraid:
+
+- Repo file: `docs/my-netboot-orchestrator.xml`
+- Raw URL: `https://raw.githubusercontent.com/Kronborgs/netboot-orchestrator/main/docs/my-netboot-orchestrator.xml`
+
 ### Step 1: Enable Required Unraid Services
 
 1. Access your Unraid web GUI (typically `http://<unraid-ip>:6080`)
