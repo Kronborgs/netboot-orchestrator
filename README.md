@@ -72,44 +72,6 @@ This is useful when validating session attribution and fallback behavior across 
 
 ![Web GUI Connection Metrics](docs/screenshots/webgui-connection-metrics.png)
 
-## Screenshot plan (where to place images)
-Create image files in `docs/screenshots/` with these names and use the sections below.
-
-### 1) Hero / first impression
-- File: `docs/screenshots/webgui-dashboard-overview.png`
-- Placement: directly below "What this is"
-- Purpose: show the main Web GUI dashboard
-
-### 2) Boot menu
-- File: `docs/screenshots/bootmenu-main.png`
-- Placement: under "Typical user workflow" step 3–4
-- Purpose: show iPXE main menu options
-
-### 3) Windows install path
-- File: `docs/screenshots/bootmenu-windows-install.png`
-- Placement: after boot menu screenshot
-- Purpose: show WinPE/Windows install selection
-
-### 4) Inventory and device details
-- File: `docs/screenshots/webgui-inventory-devices.png`
-- Placement: under "Typical user workflow"
-- Purpose: show devices list and selected device panel
-
-### 5) iSCSI image management
-- File: `docs/screenshots/webgui-image-management.png`
-- Placement: after inventory screenshot
-- Purpose: show image create/link workflow
-
-### 6) Realtime logs
-- File: `docs/screenshots/webgui-device-logs-realtime.png`
-- Placement: under "Realtime metrics debug"
-- Purpose: show live logs panel ("4 all Devices - Logs Realtid")
-
-### 7) Connection metrics
-- File: `docs/screenshots/webgui-connection-metrics.png`
-- Placement: under "Realtime metrics debug"
-- Purpose: show network/disk metrics per MAC
-
 ## Documentation
 - User quickstart: `docs/QUICKSTART.md`
 - Deployment details: `docs/DEPLOYMENT.md`
