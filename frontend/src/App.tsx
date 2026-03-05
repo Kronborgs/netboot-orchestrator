@@ -38,7 +38,7 @@ function AppShell() {
     fetch(apiUrl)
       .then(res => res.json())
       .then(data => setVersion(data.version || ''))
-      .catch(() => setVersion('2026-03-05-V209'));
+      .catch(() => setVersion('2026-03-05-V210'));
   }, []);
 
   // Check if any admin exists (first-run detection)
