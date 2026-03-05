@@ -36,7 +36,16 @@ jobs:
             exit 0
           fi
 
-          if git diff --name-only "$BEFORE" "$AFTER" | grep -qx "VERSION"; then
+          CHANGED_FILES=$(git diff --name-only "$BEFORE" "$AFTER")
+
+          # Skip enforcement if only CI/workflow or docs-only files changed
+          NON_CI=$(echo "$CHANGED_FILES" | grep -v '^\.github/' | grep -v '^docs/' || true)
+          if [ -z "$NON_CI" ]; then
+            echo "Only CI/docs files changed — skipping VERSION enforcement"
+            exit 0
+          fi
+
+          if echo "$CHANGED_FILES" | grep -qx "VERSION"; then
             echo "VERSION updated in this push range"
           else
             echo "ERROR: VERSION must be updated for every push to main"
