@@ -99,25 +99,25 @@ jobs:
 
     - name: Test docker-compose file
       run: |
-        docker-compose config > /dev/null
+        docker compose config > /dev/null
         echo "✓ docker-compose.yml is valid"
 
     - name: Build all services
       run: |
-        docker-compose build
+        docker compose build
 
     - name: Start services
       run: |
-        docker-compose up -d
+        docker compose up -d
         sleep 10
 
     - name: Check service health
       run: |
-        docker-compose ps
+        docker compose ps
         curl -f http://localhost:8000/health || exit 1
         echo "✓ API health check passed"
 
     - name: Cleanup
       if: always()
       run: |
-        docker-compose down
+        docker compose down
