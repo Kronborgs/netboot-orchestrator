@@ -19,6 +19,7 @@ class Database:
         self.unknown_devices_file = self.data_path / "unknown_devices.json"
         self.boot_logs_file = self.data_path / "boot_logs.json"
         self.device_transfer_file = self.data_path / "device_transfer.json"
+        self.users_file = self.data_path / "users.json"
         
         # Initialize files if they don't exist
         self._init_files()
@@ -39,6 +40,8 @@ class Database:
             self._write_json(self.boot_logs_file, [])
         if not self.device_transfer_file.exists():
             self._write_json(self.device_transfer_file, {})
+        if not self.users_file.exists():
+            self._write_json(self.users_file, {})
     
     def _read_json(self, file_path: Path) -> Dict[str, Any]:
         """Read JSON file safely."""
@@ -63,6 +66,30 @@ class Database:
                 pass
         return datetime.now().astimezone().isoformat()
     
+    # User / auth operations
+    def has_admin(self) -> bool:
+        """Return True if at least one admin user exists."""
+        users = self._read_json(self.users_file)
+        return any(u.get("role") == "admin" for u in users.values())
+
+    def get_user(self, username: str) -> Optional[Dict]:
+        """Get a user record by username."""
+        users = self._read_json(self.users_file)
+        return users.get(username)
+
+    def create_user(self, username: str, hashed_password: str, role: str = "admin") -> Dict:
+        """Create a new user account."""
+        users = self._read_json(self.users_file)
+        user = {
+            "username": username,
+            "hashed_password": hashed_password,
+            "role": role,
+            "created_at": self._now_iso(),
+        }
+        users[username] = user
+        self._write_json(self.users_file, users)
+        return user
+
     # Device/Profile operations
     def get_device(self, mac: str) -> Optional[Dict]:
         profiles = self._read_json(self.profiles_file)

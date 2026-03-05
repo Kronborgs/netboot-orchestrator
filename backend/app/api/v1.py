@@ -10,6 +10,7 @@ from ..models import (
 )
 from ..database import Database
 from ..services.file_service import FileService
+from .auth import require_admin
 import os
 import re
 import logging
@@ -126,7 +127,7 @@ async def stream_device_events(db: Database = Depends(get_db)):
 
 
 @router.post("/devices", response_model=dict)
-async def create_device(device: Device, db: Database = Depends(get_db)):
+async def create_device(device: Device, db: Database = Depends(get_db), _: dict = Depends(require_admin)):
     """Create a new device profile."""
     existing = db.get_device(device.mac)
     if existing:
@@ -144,7 +145,7 @@ async def get_device(mac: str, db: Database = Depends(get_db)):
 
 
 @router.put("/devices/{mac}", response_model=dict)
-async def update_device(mac: str, device: Device, db: Database = Depends(get_db)):
+async def update_device(mac: str, device: Device, db: Database = Depends(get_db), _: dict = Depends(require_admin)):
     """Update device profile."""
     existing = db.get_device(mac)
     if not existing:
@@ -153,7 +154,7 @@ async def update_device(mac: str, device: Device, db: Database = Depends(get_db)
 
 
 @router.delete("/devices/{mac}")
-async def delete_device(mac: str, db: Database = Depends(get_db)):
+async def delete_device(mac: str, db: Database = Depends(get_db), _: dict = Depends(require_admin)):
     """Delete device profile."""
     if not db.delete_device(mac):
         raise HTTPException(status_code=404, detail="Device not found")
@@ -169,7 +170,7 @@ async def list_images(db: Database = Depends(get_db)):
 
 
 @router.post("/images", response_model=dict)
-async def create_image(image: Image, db: Database = Depends(get_db)):
+async def create_image(image: Image, db: Database = Depends(get_db), _: dict = Depends(require_admin)):
     """Create a new iSCSI image."""
     existing = db.get_image(image.id)
     if existing:
@@ -187,7 +188,7 @@ async def get_image(image_id: str, db: Database = Depends(get_db)):
 
 
 @router.put("/images/{image_id}", response_model=dict)
-async def update_image(image_id: str, image: Image, db: Database = Depends(get_db)):
+async def update_image(image_id: str, image: Image, db: Database = Depends(get_db), _: dict = Depends(require_admin)):
     """Update image details."""
     existing = db.get_image(image_id)
     if not existing:
@@ -196,7 +197,7 @@ async def update_image(image_id: str, image: Image, db: Database = Depends(get_d
 
 
 @router.delete("/images/{image_id}")
-async def delete_image(image_id: str, db: Database = Depends(get_db)):
+async def delete_image(image_id: str, db: Database = Depends(get_db), _: dict = Depends(require_admin)):
     """Delete an image."""
     image = db.get_image(image_id)
     if not image:
@@ -213,7 +214,7 @@ async def delete_image(image_id: str, db: Database = Depends(get_db)):
 
 
 @router.put("/images/{image_id}/assign")
-async def assign_image(image_id: str, mac: str = Query(...), db: Database = Depends(get_db)):
+async def assign_image(image_id: str, mac: str = Query(...), db: Database = Depends(get_db), _: dict = Depends(require_admin)):
     """Assign image to a device by MAC address."""
     image = db.get_image(image_id)
     if not image:
@@ -233,7 +234,7 @@ async def assign_image(image_id: str, mac: str = Query(...), db: Database = Depe
 
 
 @router.put("/images/{image_id}/unassign")
-async def unassign_image(image_id: str, db: Database = Depends(get_db)):
+async def unassign_image(image_id: str, db: Database = Depends(get_db), _: dict = Depends(require_admin)):
     """Unassign image from device."""
     image = db.get_image(image_id)
     if not image:
@@ -294,7 +295,8 @@ async def get_os_installer_file_info(
 @router.delete("/os-installers/files/{file_path:path}")
 async def delete_os_installer_file(
     file_path: str,
-    file_service: FileService = Depends(get_file_service)
+    file_service: FileService = Depends(get_file_service),
+    _: dict = Depends(require_admin)
 ):
     """Delete an OS installer file."""
     result = file_service.delete_file(file_path, is_image=False)
@@ -339,7 +341,7 @@ async def list_os_installers_metadata(db: Database = Depends(get_db)):
 
 
 @router.post("/os-installers/metadata", response_model=dict)
-async def create_os_installer_metadata(installer: OSInstaller, db: Database = Depends(get_db)):
+async def create_os_installer_metadata(installer: OSInstaller, db: Database = Depends(get_db), _: dict = Depends(require_admin)):
     """Create OS installer metadata."""
     return db.create_os_installer(installer.name, installer.dict())
 
@@ -358,7 +360,8 @@ async def list_image_files(file_service: FileService = Depends(get_file_service)
 @router.post("/images/create-directory")
 async def create_image_directory(
     image_name: str = Query(...),
-    file_service: FileService = Depends(get_file_service)
+    file_service: FileService = Depends(get_file_service),
+    _: dict = Depends(require_admin)
 ):
     """Create a new directory for an iSCSI image."""
     result = file_service.create_image_directory(image_name)
@@ -372,7 +375,8 @@ async def create_image_directory(
 async def upload_image_file(
     image_name: str = Query(...),
     file: UploadFile = File(...),
-    file_service: FileService = Depends(get_file_service)
+    file_service: FileService = Depends(get_file_service),
+    _: dict = Depends(require_admin)
 ):
     """Upload an iSCSI disk image file."""
     try:
@@ -412,7 +416,8 @@ async def list_unknown_devices(db: Database = Depends(get_db)):
 async def register_unknown_device(
     mac: str = Query(...),
     device_type: DeviceType = Query(...),
-    db: Database = Depends(get_db)
+    db: Database = Depends(get_db),
+    _: dict = Depends(require_admin)
 ):
     """Register an unknown device and create a device profile."""
     # Check if already known
@@ -456,7 +461,7 @@ async def get_unknown_device(mac: str, db: Database = Depends(get_db)):
 
 
 @router.delete("/unknown-devices/{mac}")
-async def remove_unknown_device(mac: str, db: Database = Depends(get_db)):
+async def remove_unknown_device(mac: str, db: Database = Depends(get_db), _: dict = Depends(require_admin)):
     """Remove an unknown device from the list."""
     if not db.remove_unknown_device(mac):
         raise HTTPException(status_code=404, detail="Unknown device not found")
@@ -468,7 +473,8 @@ async def remove_unknown_device(mac: str, db: Database = Depends(get_db)):
 @router.post("/device-assignment")
 async def create_device_assignment(
     assignment: DeviceAssignment,
-    db: Database = Depends(get_db)
+    db: Database = Depends(get_db),
+    _: dict = Depends(require_admin)
 ):
     """Create or update device assignment (iSCSI image + OS installer)."""
     device = db.get_device(assignment.mac)
@@ -524,7 +530,7 @@ async def list_kernel_sets(db: Database = Depends(get_db)):
 
 
 @router.post("/kernel-sets", response_model=dict)
-async def create_kernel_set(kernel_set: KernelSet, db: Database = Depends(get_db)):
+async def create_kernel_set(kernel_set: KernelSet, db: Database = Depends(get_db), _: dict = Depends(require_admin)):
     """Create a new kernel set."""
     return db.create_kernel_set(kernel_set.name, kernel_set.dict())
 

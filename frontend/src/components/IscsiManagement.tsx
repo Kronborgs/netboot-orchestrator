@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { apiFetch } from '../api/client';
+import { useAuth } from '../contexts/AuthContext';
 
 interface IscsiImage {
   id: string;
@@ -23,6 +24,7 @@ interface Device {
 }
 
 export const IscsiManagement: React.FC = () => {
+  const { isAdmin } = useAuth();
   const [images, setImages] = useState<IscsiImage[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(false);
@@ -198,7 +200,8 @@ export const IscsiManagement: React.FC = () => {
         </div>
       )}
 
-      {/* Create iSCSI Image */}
+      {/* Create iSCSI Image — admin only */}
+      {isAdmin && (
       <div className="card" style={{ marginBottom: '24px' }}>
         <div className="card-title">
           💿 Create iSCSI Image
@@ -232,6 +235,7 @@ export const IscsiManagement: React.FC = () => {
           </button>
         </form>
       </div>
+      )}
 
       {/* Images List */}
       <div className="card">
@@ -292,23 +296,13 @@ export const IscsiManagement: React.FC = () => {
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-                    <button className="btn-primary btn-small" onClick={() => { setLinking(img.id); setLinkMac(''); }}>
-                      Link
-                    </button>
-                    <button className="btn-outline btn-small" onClick={() => { setRenaming(img.id); setRenameName(img.id); }}>
-                      Rename
-                    </button>
-                    <button className="btn-outline btn-small" onClick={() => { setCopying(img.id); setCopyName(`${img.id}-copy`); }}>
-                      Copy
-                    </button>
-                    {img.assigned_to && (
-                      <button className="btn-outline btn-small" onClick={() => handleUnlink(img.id)}>
-                        Unlink
-                      </button>
+                    {isAdmin && <button className="btn-primary btn-small" onClick={() => { setLinking(img.id); setLinkMac(''); }}>Link</button>}
+                    {isAdmin && <button className="btn-outline btn-small" onClick={() => { setRenaming(img.id); setRenameName(img.id); }}>Rename</button>}
+                    {isAdmin && <button className="btn-outline btn-small" onClick={() => { setCopying(img.id); setCopyName(`${img.id}-copy`); }}>Copy</button>}
+                    {isAdmin && img.assigned_to && (
+                      <button className="btn-outline btn-small" onClick={() => handleUnlink(img.id)}>Unlink</button>
                     )}
-                    <button className="btn-danger btn-small" onClick={() => handleDelete(img.id)}>
-                      Delete
-                    </button>
+                    {isAdmin && <button className="btn-danger btn-small" onClick={() => handleDelete(img.id)}>Delete</button>}
                   </div>
                 </div>
               </div>

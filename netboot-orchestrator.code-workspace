@@ -1,0 +1,24 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"chat.tools.terminal.autoApprove": {
+			"type": true,
+			"git init": true,
+			"git config": true,
+			"git add": true,
+			"git commit": true,
+			"/^git push origin main$/": {
+				"approve": true,
+				"matchCommandLine": true
+			},
+			"git push": true,
+			"npm install": true,
+			"npm audit": true,
+			"npm run build": true
+		}
+	}
+}

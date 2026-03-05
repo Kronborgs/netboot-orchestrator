@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { apiFetch } from '../api/client';
+import { useAuth } from '../contexts/AuthContext';
 
 interface StorageInfo {
   os_installers: {
@@ -33,6 +34,7 @@ interface Breadcrumb {
 }
 
 export const OsInstallerList: React.FC = () => {
+  const { isAdmin } = useAuth();
   const [currentFolder, setCurrentFolder] = useState<string>("");
   const [items, setItems] = useState<FolderItem[]>([]);
   const [breadcrumb, setBreadcrumb] = useState<Breadcrumb[]>([]);
@@ -322,7 +324,7 @@ export const OsInstallerList: React.FC = () => {
                     )}
                   </div>
                 </div>
-                {item.type === 'file' && (
+                {item.type === 'file' && isAdmin && (
                   <button
                     className="btn-danger btn-small"
                     onClick={(e) => {

@@ -2,6 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { Dashboard } from './pages/Dashboard';
 import { Inventory } from './pages/Inventory';
 import { SetupGuide } from './pages/SetupGuide';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { LoginPage } from './components/LoginPage';
+import { SetupPage } from './components/SetupPage';
+import { getApiUrl } from './api/client';
 import './styles/index.css';
 
 type Page = 'dashboard' | 'inventory' | 'setup';
@@ -9,10 +13,16 @@ type InventoryTab = 'devices' | 'iscsi' | 'installers' | 'logs' | 'wizard';
 
 const LOGO_URL = 'https://raw.githubusercontent.com/Kronborgs/netboot-orchestrator/main/docs/logo.png';
 
-function App() {
+// ---------------------------------------------------------------------------
+// Inner app — rendered only when auth state is resolved
+// ---------------------------------------------------------------------------
+function AppShell() {
+  const { user, isAdmin, isLoading, logout, continueAsGuest } = useAuth();
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const [inventoryTab, setInventoryTab] = useState<InventoryTab>('devices');
   const [version, setVersion] = useState<string>('');
+  const [hasAdmin, setHasAdmin] = useState<boolean | null>(null);
+  const [setupChecked, setSetupChecked] = useState(false);
 
   const openInventoryTab = (tab: InventoryTab) => {
     setInventoryTab(tab);
@@ -20,18 +30,46 @@ function App() {
   };
 
   useEffect(() => {
-    // Dark mode is always on (default)
     document.documentElement.style.colorScheme = 'dark';
   }, []);
 
   useEffect(() => {
-    // Fetch version from API - use same host as frontend
     const apiUrl = `${window.location.protocol}//${window.location.hostname}:8000/api/v1/version`;
     fetch(apiUrl)
       .then(res => res.json())
       .then(data => setVersion(data.version || ''))
-        .catch(() => setVersion('2026-02-25-V208'));
+      .catch(() => setVersion('2026-03-05-V209'));
   }, []);
+
+  // Check if any admin exists (first-run detection)
+  useEffect(() => {
+    fetch(getApiUrl('/api/v1/auth/setup-status'))
+      .then(res => res.json())
+      .then(data => setHasAdmin(Boolean(data.has_admin)))
+      .catch(() => setHasAdmin(true))   // assume admin exists if API is unreachable
+      .finally(() => setSetupChecked(true));
+  }, []);
+
+  // Wait until both auth rehydration and setup-status are done
+  if (isLoading || !setupChecked) {
+    return (
+      <div className="auth-page">
+        <div className="auth-card" style={{ textAlign: 'center', padding: '2rem' }}>
+          <p style={{ color: 'var(--text-muted)' }}>Loading…</p>
+        </div>
+      </div>
+    );
+  }
+
+  // First-run: no admin exists yet
+  if (!hasAdmin) {
+    return <SetupPage />;
+  }
+
+  // Not authenticated and not continuing as guest
+  if (!user) {
+    return <LoginPage />;
+  }
 
   return (
     <div className="app-shell">
@@ -76,7 +114,22 @@ function App() {
           <button className="topbar-path" onClick={() => setCurrentPage('dashboard')}>Dashboard</button>
           <div className="topbar-right">
             <input className="topbar-search" placeholder="Søg her..." />
-            <span className="topbar-user">Sign in</span>
+            {isAdmin ? (
+              <span className="topbar-user topbar-user--admin" title="Signed in as admin">
+                👤 {user.username}
+                <button className="topbar-signout" onClick={logout} title="Sign out">Sign out</button>
+              </span>
+            ) : (
+              <button
+                className="topbar-user topbar-user--guest"
+                onClick={() => {
+                  logout();            // clears guest state so LoginPage shows
+                }}
+                title="Click to sign in"
+              >
+                Sign in
+              </button>
+            )}
           </div>
         </header>
 
@@ -88,7 +141,9 @@ function App() {
               onOpenInstallers={() => openInventoryTab('installers')}
             />
           )}
-          {currentPage === 'inventory' && <Inventory initialTab={inventoryTab} />}
+          {currentPage === 'inventory' && (
+            <Inventory initialTab={inventoryTab} isAdmin={isAdmin} />
+          )}
           {currentPage === 'setup' && <SetupGuide />}
         </main>
 
@@ -98,6 +153,17 @@ function App() {
         </footer>
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Root — wraps everything in AuthProvider
+// ---------------------------------------------------------------------------
+function App() {
+  return (
+    <AuthProvider>
+      <AppShell />
+    </AuthProvider>
   );
 }
 

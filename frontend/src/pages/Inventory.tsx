@@ -10,9 +10,10 @@ type InventoryTab = 'devices' | 'iscsi' | 'installers' | 'logs' | 'wizard';
 
 interface InventoryProps {
   initialTab?: InventoryTab;
+  isAdmin?: boolean;
 }
 
-export const Inventory: React.FC<InventoryProps> = ({ initialTab = 'devices' }) => {
+export const Inventory: React.FC<InventoryProps> = ({ initialTab = 'devices', isAdmin: _isAdmin }) => {
   const [activeTab, setActiveTab] = React.useState<InventoryTab>(initialTab);
 
   React.useEffect(() => {

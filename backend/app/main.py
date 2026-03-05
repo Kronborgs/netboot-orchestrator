@@ -4,7 +4,7 @@ import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .api import v1, boot
+from .api import v1, boot, auth
 
 
 logger = logging.getLogger(__name__)
@@ -79,6 +79,7 @@ app.add_middleware(
 # Include routers
 app.include_router(v1.router)
 app.include_router(boot.router)
+app.include_router(auth.router)
 
 
 @app.get("/")

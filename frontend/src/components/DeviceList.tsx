@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { apiFetch, getApiUrl } from '../api/client';
+import { useAuth } from '../contexts/AuthContext';
 
 interface Device {
   mac: string;
@@ -80,6 +81,7 @@ interface WinpeLogFile {
 }
 
 export const DeviceList: React.FC = () => {
+  const { isAdmin } = useAuth();
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -398,6 +400,7 @@ export const DeviceList: React.FC = () => {
         <button 
           className="btn-primary mb-3"
           onClick={() => setShowForm(!showForm)}
+          style={!isAdmin ? { display: 'none' } : {}}
         >
           {showForm ? 'Cancel' : '+ Register New Device'}
         </button>
@@ -514,6 +517,7 @@ export const DeviceList: React.FC = () => {
                     >
                       {expandedMac === device.mac ? 'Hide Details' : 'Details'}
                     </button>
+                    {isAdmin && (
                     <button
                       className="btn-small"
                       onClick={() => toggleDeviceStatus(device)}
@@ -527,12 +531,15 @@ export const DeviceList: React.FC = () => {
                     >
                       {device.enabled ? 'Disable' : 'Enable'}
                     </button>
+                    )}
+                    {isAdmin && (
                     <button
                       className="btn-danger btn-small"
                       onClick={() => deleteDevice(device.mac)}
                     >
                       Delete
                     </button>
+                    )}
                   </td>
                 </tr>
                 {expandedMac === device.mac && (

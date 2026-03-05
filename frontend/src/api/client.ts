@@ -9,7 +9,20 @@ export const getApiUrl = (path: string): string => {
   return `${protocol}//${hostname}:8000${path}`;
 };
 
+const TOKEN_KEY = 'nb_token';
+
+export const getToken = (): string | null => localStorage.getItem(TOKEN_KEY);
+export const setToken = (token: string): void => localStorage.setItem(TOKEN_KEY, token);
+export const clearToken = (): void => localStorage.removeItem(TOKEN_KEY);
+
 export const apiFetch = async (path: string, options?: RequestInit) => {
   const url = getApiUrl(path);
-  return fetch(url, options);
+  const token = getToken();
+  const headers: Record<string, string> = {
+    ...(options?.headers as Record<string, string> | undefined),
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return fetch(url, { ...options, headers });
 };
