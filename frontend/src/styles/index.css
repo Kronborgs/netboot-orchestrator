@@ -996,6 +996,14 @@ table tr:hover {
   margin: 10px 0 0;
 }
 
+.auth-version {
+  font-size: 11px;
+  color: rgba(148, 163, 184, 0.45);
+  text-align: center;
+  margin: 14px 0 0;
+  letter-spacing: 0.04em;
+}
+
 .btn-secondary {
   background: transparent;
   border: 1px solid rgba(96, 165, 250, 0.4);

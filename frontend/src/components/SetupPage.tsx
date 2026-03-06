@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { apiFetch, setToken } from '../api/client';
+import React, { useState, useEffect } from 'react';
+import { apiFetch, setToken, getApiUrl } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 
 const LOGO_URL = 'https://raw.githubusercontent.com/Kronborgs/netboot-orchestrator/main/docs/logo.png';
@@ -11,6 +11,14 @@ export const SetupPage: React.FC = () => {
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [version, setVersion] = useState('');
+
+  useEffect(() => {
+    fetch(getApiUrl('/api/v1/version'))
+      .then(r => r.json())
+      .then(d => setVersion(d.version || ''))
+      .catch(() => setVersion('2026-03-06-V211'));
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -112,6 +120,7 @@ export const SetupPage: React.FC = () => {
             {loading ? 'Creating account…' : 'Create Admin Account'}
           </button>
         </form>
+        <p className="auth-version">v{version || '2026-03-06-V211'}</p>
       </div>
     </div>
   );

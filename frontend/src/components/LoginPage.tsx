@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { getApiUrl } from '../api/client';
 
 interface LoginPageProps {
   onNeedSetup?: () => void;
@@ -13,6 +14,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onNeedSetup: _onNeedSetup 
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [version, setVersion] = useState('');
+
+  useEffect(() => {
+    fetch(getApiUrl('/api/v1/version'))
+      .then(r => r.json())
+      .then(d => setVersion(d.version || ''))
+      .catch(() => setVersion('2026-03-06-V211'));
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,6 +94,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onNeedSetup: _onNeedSetup 
         <p className="auth-hint">
           Guests can view the dashboard and upload OS installers.
         </p>
+        <p className="auth-version">v{version || '2026-03-06-V211'}</p>
       </div>
     </div>
   );
