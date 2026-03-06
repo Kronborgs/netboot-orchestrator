@@ -23,6 +23,7 @@ function AppShell() {
   const [version, setVersion] = useState<string>('');
   const [hasAdmin, setHasAdmin] = useState<boolean | null>(null);
   const [setupChecked, setSetupChecked] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
 
   const openInventoryTab = (tab: InventoryTab) => {
     setInventoryTab(tab);
@@ -38,7 +39,7 @@ function AppShell() {
     fetch(apiUrl)
       .then(res => res.json())
       .then(data => setVersion(data.version || ''))
-      .catch(() => setVersion('2026-03-06-V211'));
+      .catch(() => setVersion('2026-03-06-V212'));
   }, []);
 
   // Check if any admin exists (first-run detection)
@@ -49,6 +50,13 @@ function AppShell() {
       .catch(() => setHasAdmin(true))   // assume admin exists if API is unreachable
       .finally(() => setSetupChecked(true));
   }, []);
+
+  // Auto-continue as guest once everything is loaded and admin exists but user is not set
+  useEffect(() => {
+    if (!isLoading && setupChecked && hasAdmin && !user) {
+      continueAsGuest();
+    }
+  }, [isLoading, setupChecked, hasAdmin, user, continueAsGuest]);
 
   // Wait until both auth rehydration and setup-status are done
   if (isLoading || !setupChecked) {
@@ -66,9 +74,15 @@ function AppShell() {
     return <SetupPage />;
   }
 
-  // Not authenticated and not continuing as guest
+  // Still waiting for auto-guest to kick in
   if (!user) {
-    return <LoginPage />;
+    return (
+      <div className="auth-page">
+        <div className="auth-card" style={{ textAlign: 'center', padding: '2rem' }}>
+          <p style={{ color: 'var(--text-muted)' }}>Loading…</p>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -122,9 +136,7 @@ function AppShell() {
             ) : (
               <button
                 className="topbar-user topbar-user--guest"
-                onClick={() => {
-                  logout();            // clears guest state so LoginPage shows
-                }}
+                onClick={() => setShowLoginModal(true)}
                 title="Click to sign in"
               >
                 Sign in
@@ -152,6 +164,10 @@ function AppShell() {
           <div>Network boot management for Raspberry Pi, x86, and x64 systems</div>
         </footer>
       </div>
+
+      {showLoginModal && (
+        <LoginPage onClose={() => setShowLoginModal(false)} />
+      )}
     </div>
   );
 }

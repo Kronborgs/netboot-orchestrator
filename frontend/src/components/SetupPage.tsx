@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { apiFetch, setToken, getApiUrl } from '../api/client';
+import { apiFetch, getApiUrl } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 
 const LOGO_URL = 'https://raw.githubusercontent.com/Kronborgs/netboot-orchestrator/main/docs/logo.png';
 
 export const SetupPage: React.FC = () => {
-  const { login } = useAuth();
+  const { continueAsGuest } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -17,7 +17,7 @@ export const SetupPage: React.FC = () => {
     fetch(getApiUrl('/api/v1/version'))
       .then(r => r.json())
       .then(d => setVersion(d.version || ''))
-      .catch(() => setVersion('2026-03-06-V211'));
+      .catch(() => setVersion('2026-03-06-V212'));
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -49,10 +49,9 @@ export const SetupPage: React.FC = () => {
         setError(data.detail || 'Setup failed');
         return;
       }
-      // Auto-login after setup
-      setToken(data.access_token);
-      // trigger the context to pick up the token
-      await login(username.trim(), password);
+      // Account created — go to dashboard as guest
+      // (user can sign in via the Sign in button if they need admin access)
+      continueAsGuest();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Setup failed');
     } finally {
@@ -120,7 +119,7 @@ export const SetupPage: React.FC = () => {
             {loading ? 'Creating account…' : 'Create Admin Account'}
           </button>
         </form>
-        <p className="auth-version">v{version || '2026-03-06-V211'}</p>
+        <p className="auth-version">v{version || '2026-03-06-V212'}</p>
       </div>
     </div>
   );
