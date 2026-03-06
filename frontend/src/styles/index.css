@@ -1293,6 +1293,16 @@ table {
   letter-spacing: 0.05em;
 }
 
+.admin-badge--admin {
+  background: rgba(251, 191, 36, 0.15);
+  color: #fbbf24;
+}
+
+.admin-badge--super_user {
+  background: rgba(99, 179, 237, 0.15);
+  color: #63b3ed;
+}
+
 .admin-date {
   color: var(--text-muted);
   font-size: 12px;

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { apiFetch, getApiUrl, getToken, setToken, clearToken } from '../api/client';
 
-export type AuthRole = 'admin' | 'guest';
+export type AuthRole = 'admin' | 'super_user' | 'guest';
 
 export interface AuthUser {
   username: string;
@@ -85,7 +85,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     <AuthContext.Provider
       value={{
         user,
-        isAdmin: user?.role === 'admin',
+        isAdmin: user?.role === 'admin' || user?.role === 'super_user',
         isLoading,
         login,
         logout,

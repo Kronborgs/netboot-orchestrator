@@ -87,7 +87,7 @@ const UsersTab: React.FC = () => {
       const res = await apiFetch('/api/v1/auth/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: newUsername.trim(), password: newPassword, role: 'admin' }),
+        body: JSON.stringify({ username: newUsername.trim(), password: newPassword, role: 'super_user' }),
       });
       const data = await res.json();
       if (!res.ok) { setAddError(data.detail || 'Failed to create user'); return; }
@@ -116,8 +116,8 @@ const UsersTab: React.FC = () => {
     <div className="admin-section">
       <h2 className="admin-section-title">User Accounts</h2>
       <p className="admin-section-desc">
-        All users have full admin access. Set an email address so they can receive password reset links.
-        The audit log records who did what.
+        There is one Administrator account. Additional accounts are Super Users with the same access.
+        Set an email address on each account so they can receive password reset links.
       </p>
 
       {error && <div className="admin-error">{error}</div>}
@@ -133,7 +133,7 @@ const UsersTab: React.FC = () => {
             {users.map(u => (
               <tr key={u.username}>
                 <td><span className="admin-username">👤 {u.username}</span></td>
-                <td><span className="admin-badge">{u.role}</span></td>
+                <td><span className={`admin-badge admin-badge--${u.role}`}>{u.role === 'admin' ? 'Administrator' : u.role === 'super_user' ? 'Super User' : u.role}</span></td>
                 <td>
                   <div className="email-edit-row">
                     <input
@@ -170,7 +170,7 @@ const UsersTab: React.FC = () => {
       )}
 
       <div className="admin-card" style={{ marginTop: '2rem' }}>
-        <h3>Add Admin User</h3>
+        <h3>Add Super User</h3>
         <form onSubmit={handleAddUser} className="admin-form-row">
           {addError && <div className="admin-error" style={{ gridColumn: '1/-1' }}>{addError}</div>}
           <div className="admin-field">
