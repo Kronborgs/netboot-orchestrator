@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 
 const LOGO_URL = 'https://raw.githubusercontent.com/Kronborgs/netboot-orchestrator/main/docs/logo.png';
 
-export const SetupPage: React.FC = () => {
+export const SetupPage: React.FC<{ onCreated?: () => void }> = ({ onCreated }) => {
   const { continueAsGuest } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -17,7 +17,7 @@ export const SetupPage: React.FC = () => {
     fetch(getApiUrl('/api/v1/version'))
       .then(r => r.json())
       .then(d => setVersion(d.version || ''))
-      .catch(() => setVersion('2026-03-06-V213'));
+      .catch(() => setVersion('2026-03-06-V214'));
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -49,9 +49,12 @@ export const SetupPage: React.FC = () => {
         setError(data.detail || 'Setup failed');
         return;
       }
-      // Account created — go to dashboard as guest
-      // (user can sign in via the Sign in button if they need admin access)
-      continueAsGuest();
+      // Account created — tell AppShell admin now exists, it will auto-guest
+      if (onCreated) {
+        onCreated();
+      } else {
+        continueAsGuest();
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Setup failed');
     } finally {
@@ -119,7 +122,7 @@ export const SetupPage: React.FC = () => {
             {loading ? 'Creating account…' : 'Create Admin Account'}
           </button>
         </form>
-        <p className="auth-version">v{version || '2026-03-06-V213'}</p>
+        <p className="auth-version">v{version || '2026-03-06-V214'}</p>
       </div>
     </div>
   );

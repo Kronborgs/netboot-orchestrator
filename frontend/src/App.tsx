@@ -55,7 +55,7 @@ function AppShell() {
     fetch(apiUrl)
       .then(res => res.json())
       .then(data => setVersion(data.version || ''))
-      .catch(() => setVersion('2026-03-06-V213'));
+      .catch(() => setVersion('2026-03-06-V214'));
   }, []);
 
   // Check if any admin exists (first-run detection)
@@ -87,7 +87,7 @@ function AppShell() {
 
   // First-run: no admin exists yet
   if (!hasAdmin) {
-    return <SetupPage />;
+    return <SetupPage onCreated={() => setHasAdmin(true)} />;
   }
 
   // Still waiting for auto-guest to kick in
