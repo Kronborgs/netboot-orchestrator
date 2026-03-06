@@ -5,7 +5,7 @@ import { SetupGuide } from './pages/SetupGuide';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { LoginPage } from './components/LoginPage';
 import { SetupPage } from './components/SetupPage';
-import { getApiUrl } from './api/client';
+import { getApiUrl, apiFetch } from './api/client';
 import './styles/index.css';
 
 type Page = 'dashboard' | 'inventory' | 'setup';
@@ -24,6 +24,22 @@ function AppShell() {
   const [hasAdmin, setHasAdmin] = useState<boolean | null>(null);
   const [setupChecked, setSetupChecked] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [deletingUser, setDeletingUser] = useState(false);
+
+  const handleDeleteAccount = async () => {
+    if (!user) return;
+    if (!window.confirm(`Delete admin account "${user.username}"? You will need to create a new admin account.`)) return;
+    setDeletingUser(true);
+    try {
+      await apiFetch(`/api/v1/auth/users/${encodeURIComponent(user.username)}`, { method: 'DELETE' });
+    } catch {
+      // ignore — could already be deleted
+    } finally {
+      setDeletingUser(false);
+    }
+    logout();          // clears token + user state
+    setHasAdmin(false); // forces SetupPage to render
+  };
 
   const openInventoryTab = (tab: InventoryTab) => {
     setInventoryTab(tab);
@@ -39,7 +55,7 @@ function AppShell() {
     fetch(apiUrl)
       .then(res => res.json())
       .then(data => setVersion(data.version || ''))
-      .catch(() => setVersion('2026-03-06-V212'));
+      .catch(() => setVersion('2026-03-06-V213'));
   }, []);
 
   // Check if any admin exists (first-run detection)
@@ -132,6 +148,14 @@ function AppShell() {
               <span className="topbar-user topbar-user--admin" title="Signed in as admin">
                 👤 {user.username}
                 <button className="topbar-signout" onClick={logout} title="Sign out">Sign out</button>
+                <button
+                  className="topbar-signout topbar-delete-account"
+                  onClick={handleDeleteAccount}
+                  disabled={deletingUser}
+                  title="Delete this admin account (triggers re-setup)"
+                >
+                  {deletingUser ? '…' : 'Delete account'}
+                </button>
               </span>
             ) : (
               <button

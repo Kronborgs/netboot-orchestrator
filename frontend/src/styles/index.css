@@ -872,6 +872,18 @@ table tr:hover {
   background: rgba(248, 113, 113, 0.1);
 }
 
+.topbar-delete-account {
+  border-color: rgba(248, 113, 113, 0.25);
+  color: rgba(252, 165, 165, 0.55);
+  font-size: 11px;
+}
+
+.topbar-delete-account:hover {
+  background: rgba(248, 113, 113, 0.08);
+  color: #fca5a5;
+  border-color: rgba(248, 113, 113, 0.5);
+}
+
 /* ======================== AUTH PAGES ======================== */
 .auth-page {
   min-height: 100vh;

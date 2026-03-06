@@ -17,7 +17,7 @@ export const SetupPage: React.FC = () => {
     fetch(getApiUrl('/api/v1/version'))
       .then(r => r.json())
       .then(d => setVersion(d.version || ''))
-      .catch(() => setVersion('2026-03-06-V212'));
+      .catch(() => setVersion('2026-03-06-V213'));
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -119,7 +119,7 @@ export const SetupPage: React.FC = () => {
             {loading ? 'Creating account…' : 'Create Admin Account'}
           </button>
         </form>
-        <p className="auth-version">v{version || '2026-03-06-V212'}</p>
+        <p className="auth-version">v{version || '2026-03-06-V213'}</p>
       </div>
     </div>
   );

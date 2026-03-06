@@ -113,6 +113,12 @@ class UserResponse(BaseModel):
     role: str
 
 
+class UserListItem(BaseModel):
+    username: str
+    role: str
+    created_at: str
+
+
 # ---------------------------------------------------------------------------
 # Router
 # ---------------------------------------------------------------------------
@@ -164,3 +170,26 @@ async def login(
 async def get_me(current_user: dict = Depends(require_admin)):
     """Return calling user's profile (requires valid token)."""
     return UserResponse(username=current_user["username"], role=current_user["role"])
+
+
+@router.get("/users", response_model=list)
+async def list_users(
+    _: dict = Depends(require_admin),
+    db: Database = Depends(get_db),
+):
+    """List all users (admin only)."""
+    return db.list_users()
+
+
+@router.delete("/users/{username}")
+async def delete_user(
+    username: str,
+    current_user: dict = Depends(require_admin),
+    db: Database = Depends(get_db),
+):
+    """Delete a user account (admin only). Allows deleting last admin to trigger re-setup."""
+    if not db.get_user(username):
+        raise HTTPException(status_code=404, detail="User not found")
+    db.delete_user(username)
+    logger.info("User '%s' deleted by '%s'", username, current_user["username"])
+    return {"deleted": username}

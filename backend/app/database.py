@@ -90,6 +90,23 @@ class Database:
         self._write_json(self.users_file, users)
         return user
 
+    def list_users(self) -> List[Dict]:
+        """Return all users (without hashed_password)."""
+        users = self._read_json(self.users_file)
+        return [
+            {k: v for k, v in u.items() if k != "hashed_password"}
+            for u in users.values()
+        ]
+
+    def delete_user(self, username: str) -> bool:
+        """Delete a user. Returns True if deleted, False if not found."""
+        users = self._read_json(self.users_file)
+        if username not in users:
+            return False
+        del users[username]
+        self._write_json(self.users_file, users)
+        return True
+
     # Device/Profile operations
     def get_device(self, mac: str) -> Optional[Dict]:
         profiles = self._read_json(self.profiles_file)
