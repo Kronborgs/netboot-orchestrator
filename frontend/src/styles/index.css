@@ -1393,3 +1393,74 @@ table {
   background: rgba(248, 113, 113, 0.1);
   color: #fca5a5;
 }
+
+.btn-save-sm {
+  background: transparent;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  color: rgba(110, 231, 183, 0.7);
+  border-radius: 5px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+
+.btn-save-sm:hover:not(:disabled) {
+  background: rgba(52, 211, 153, 0.1);
+  color: #6ee7b7;
+}
+
+.btn-save-sm:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Email edit row in users table */
+.email-edit-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.email-edit-input {
+  flex: 1;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(96, 165, 250, 0.2);
+  border-radius: 6px;
+  color: var(--text-primary);
+  padding: 5px 10px;
+  font-size: 13px;
+  outline: none;
+  min-width: 160px;
+}
+
+.email-edit-input:focus {
+  border-color: rgba(96, 165, 250, 0.5);
+}
+
+/* Auth sub-components */
+.auth-ok {
+  background: rgba(52, 211, 153, 0.1);
+  border: 1px solid rgba(52, 211, 153, 0.3);
+  color: #6ee7b7;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.auth-back-link {
+  background: none;
+  border: none;
+  color: rgba(148, 163, 184, 0.65);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 6px 0;
+  margin-top: 6px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.auth-back-link:hover {
+  color: #93c5fd;
+}

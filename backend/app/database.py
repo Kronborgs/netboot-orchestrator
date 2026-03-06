@@ -94,11 +94,61 @@ class Database:
             "username": username,
             "hashed_password": hashed_password,
             "role": role,
+            "email": "",
             "created_at": self._now_iso(),
         }
         users[username] = user
         self._write_json(self.users_file, users)
         return user
+
+    def update_user_email(self, username: str, email: str) -> Optional[Dict]:
+        """Set or update the email address for a user."""
+        users = self._read_json(self.users_file)
+        if username not in users:
+            return None
+        users[username]["email"] = email.strip().lower()
+        self._write_json(self.users_file, users)
+        return {k: v for k, v in users[username].items() if k != "hashed_password"}
+
+    def get_user_by_email(self, email: str) -> Optional[Dict]:
+        """Find a user by email address (case-insensitive)."""
+        target = email.strip().lower()
+        users = self._read_json(self.users_file)
+        for u in users.values():
+            if (u.get("email") or "").lower() == target:
+                return u
+        return None
+
+    def set_reset_token(self, username: str, token: str, expires_iso: str) -> bool:
+        users = self._read_json(self.users_file)
+        if username not in users:
+            return False
+        users[username]["reset_token"] = token
+        users[username]["reset_token_expires"] = expires_iso
+        self._write_json(self.users_file, users)
+        return True
+
+    def get_user_by_reset_token(self, token: str) -> Optional[Dict]:
+        users = self._read_json(self.users_file)
+        for u in users.values():
+            if u.get("reset_token") == token:
+                return u
+        return None
+
+    def clear_reset_token(self, username: str) -> None:
+        users = self._read_json(self.users_file)
+        if username in users:
+            users[username].pop("reset_token", None)
+            users[username].pop("reset_token_expires", None)
+            self._write_json(self.users_file, users)
+
+    def reset_password(self, username: str, hashed_password: str) -> None:
+        users = self._read_json(self.users_file)
+        if username in users:
+            users[username]["hashed_password"] = hashed_password
+            users[username].pop("reset_token", None)
+            users[username].pop("reset_token_expires", None)
+            self._write_json(self.users_file, users)
 
     def list_users(self) -> List[Dict]:
         """Return all users (without hashed_password)."""

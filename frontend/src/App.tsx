@@ -6,6 +6,7 @@ import { Administration } from './pages/Administration';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { LoginPage } from './components/LoginPage';
 import { SetupPage } from './components/SetupPage';
+import { ResetPasswordPage } from './components/ResetPasswordPage';
 import { getApiUrl, apiFetch } from './api/client';
 import './styles/index.css';
 
@@ -56,7 +57,7 @@ function AppShell() {
     fetch(apiUrl)
       .then(res => res.json())
       .then(data => setVersion(data.version || ''))
-      .catch(() => setVersion('2026-03-06-V215'));
+      .catch(() => setVersion('2026-03-06-V216'));
   }, []);
 
   // Check if any admin exists (first-run detection)
@@ -210,6 +211,20 @@ function AppShell() {
 // Root — wraps everything in AuthProvider
 // ---------------------------------------------------------------------------
 function App() {
+  // Detect password reset token in URL before rendering anything else
+  const params = new URLSearchParams(window.location.search);
+  const resetToken = params.get('token');
+
+  const clearResetToken = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('token');
+    window.history.replaceState({}, '', url.toString());
+  };
+
+  if (resetToken) {
+    return <ResetPasswordPage token={resetToken} onDone={clearResetToken} />;
+  }
+
   return (
     <AuthProvider>
       <AppShell />

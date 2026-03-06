@@ -7,6 +7,7 @@ interface User {
   username: string;
   role: string;
   created_at: string;
+  email?: string;
 }
 
 interface SmtpSettings {
@@ -40,13 +41,20 @@ const UsersTab: React.FC = () => {
   const [addError, setAddError] = useState('');
   const [adding, setAdding] = useState(false);
   const [deletingUser, setDeletingUser] = useState<string | null>(null);
+  const [editingEmail, setEditingEmail] = useState<Record<string, string>>({});
+  const [savingEmail, setSavingEmail] = useState<string | null>(null);
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
     try {
       const res = await apiFetch('/api/v1/auth/users');
       if (!res.ok) throw new Error('Failed to load users');
-      setUsers(await res.json());
+      const data: User[] = await res.json();
+      setUsers(data);
+      // pre-fill email edit map
+      const map: Record<string, string> = {};
+      data.forEach(u => { map[u.username] = u.email || ''; });
+      setEditingEmail(map);
     } catch {
       setError('Could not load users');
     } finally {
@@ -55,6 +63,21 @@ const UsersTab: React.FC = () => {
   }, []);
 
   useEffect(() => { loadUsers(); }, [loadUsers]);
+
+  const handleSaveEmail = async (username: string) => {
+    setSavingEmail(username);
+    try {
+      const res = await apiFetch(`/api/v1/auth/users/${encodeURIComponent(username)}/email`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: editingEmail[username] || '' }),
+      });
+      if (!res.ok) { const d = await res.json(); setError(d.detail || 'Failed to save email'); return; }
+      await loadUsers();
+    } finally {
+      setSavingEmail(null);
+    }
+  };
 
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,7 +116,8 @@ const UsersTab: React.FC = () => {
     <div className="admin-section">
       <h2 className="admin-section-title">User Accounts</h2>
       <p className="admin-section-desc">
-        All users have full admin access. The audit log records who did what.
+        All users have full admin access. Set an email address so they can receive password reset links.
+        The audit log records who did what.
       </p>
 
       {error && <div className="admin-error">{error}</div>}
@@ -103,13 +127,32 @@ const UsersTab: React.FC = () => {
       ) : (
         <table className="admin-table">
           <thead>
-            <tr><th>Username</th><th>Role</th><th>Created</th><th></th></tr>
+            <tr><th>Username</th><th>Role</th><th>Email (for password reset)</th><th>Created</th><th></th></tr>
           </thead>
           <tbody>
             {users.map(u => (
               <tr key={u.username}>
                 <td><span className="admin-username">👤 {u.username}</span></td>
                 <td><span className="admin-badge">{u.role}</span></td>
+                <td>
+                  <div className="email-edit-row">
+                    <input
+                      type="email"
+                      className="email-edit-input"
+                      value={editingEmail[u.username] ?? u.email ?? ''}
+                      onChange={e => setEditingEmail(m => ({ ...m, [u.username]: e.target.value }))}
+                      placeholder="user@example.com"
+                      disabled={savingEmail === u.username}
+                    />
+                    <button
+                      className="btn-save-sm"
+                      onClick={() => handleSaveEmail(u.username)}
+                      disabled={savingEmail === u.username || (editingEmail[u.username] ?? '') === (u.email ?? '')}
+                    >
+                      {savingEmail === u.username ? '…' : 'Save'}
+                    </button>
+                  </div>
+                </td>
                 <td className="admin-date">{new Date(u.created_at).toLocaleString()}</td>
                 <td>
                   <button
