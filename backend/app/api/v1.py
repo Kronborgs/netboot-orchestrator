@@ -690,3 +690,104 @@ async def download_os_installer(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# SMTP settings
+# ---------------------------------------------------------------------------
+
+from pydantic import BaseModel as _BaseModel
+
+class SmtpSettings(_BaseModel):
+    host: str = ""
+    port: int = 587
+    username: str = ""
+    password: str = ""
+    from_address: str = ""
+    from_name: str = "Netboot Orchestrator"
+    use_tls: bool = True
+    use_ssl: bool = False
+
+
+@router.get("/settings/smtp")
+async def get_smtp(_: dict = Depends(require_admin), db: Database = Depends(get_db)):
+    s = db.get_smtp_settings()
+    # never return the raw password — mask it
+    masked = dict(s)
+    if masked.get("password"):
+        masked["password"] = "••••••••"
+    return masked
+
+
+@router.put("/settings/smtp")
+async def save_smtp(
+    body: SmtpSettings,
+    current_user: dict = Depends(require_admin),
+    db: Database = Depends(get_db),
+):
+    data = body.model_dump()
+    # If the client sends the masked placeholder, keep the existing password
+    if data.get("password") == "••••••••":
+        existing = db.get_smtp_settings()
+        data["password"] = existing.get("password", "")
+    db.save_smtp_settings(data)
+    db.log_audit(current_user["username"], "smtp.updated", "smtp", "SMTP settings saved")
+    return {"ok": True}
+
+
+class SmtpTestRequest(_BaseModel):
+    to: str
+
+
+@router.post("/settings/smtp/test")
+async def test_smtp(
+    body: SmtpTestRequest,
+    current_user: dict = Depends(require_admin),
+    db: Database = Depends(get_db),
+):
+    """Send a test email using the saved SMTP configuration."""
+    import smtplib
+    from email.mime.text import MIMEText
+
+    s = db.get_smtp_settings()
+    if not s.get("host") or not s.get("from_address"):
+        raise HTTPException(status_code=422, detail="SMTP host and From address must be configured first")
+
+    msg = MIMEText(
+        "This is a test email from Netboot Orchestrator.\n\nIf you received this, your SMTP settings are working correctly.",
+        "plain",
+    )
+    msg["Subject"] = "Netboot Orchestrator — SMTP Test"
+    msg["From"] = f"{s.get('from_name', 'Netboot Orchestrator')} <{s['from_address']}>"
+    msg["To"] = body.to
+
+    try:
+        port = int(s.get("port", 587))
+        if s.get("use_ssl"):
+            smtp = smtplib.SMTP_SSL(s["host"], port, timeout=10)
+        else:
+            smtp = smtplib.SMTP(s["host"], port, timeout=10)
+            if s.get("use_tls"):
+                smtp.starttls()
+        if s.get("username") and s.get("password"):
+            smtp.login(s["username"], s["password"])
+        smtp.sendmail(s["from_address"], [body.to], msg.as_string())
+        smtp.quit()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"SMTP error: {exc}")
+
+    db.log_audit(current_user["username"], "smtp.test_sent", body.to)
+    return {"ok": True, "sent_to": body.to}
+
+
+# ---------------------------------------------------------------------------
+# Audit log
+# ---------------------------------------------------------------------------
+
+@router.get("/audit-log")
+async def get_audit_log(
+    limit: int = 100,
+    _: dict = Depends(require_admin),
+    db: Database = Depends(get_db),
+):
+    return db.get_audit_log(limit=min(limit, 500))

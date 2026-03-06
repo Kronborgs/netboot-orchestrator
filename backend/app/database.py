@@ -20,6 +20,8 @@ class Database:
         self.boot_logs_file = self.data_path / "boot_logs.json"
         self.device_transfer_file = self.data_path / "device_transfer.json"
         self.users_file = self.data_path / "users.json"
+        self.smtp_file = self.data_path / "smtp.json"
+        self.audit_log_file = self.data_path / "audit_log.json"
         
         # Initialize files if they don't exist
         self._init_files()
@@ -42,6 +44,14 @@ class Database:
             self._write_json(self.device_transfer_file, {})
         if not self.users_file.exists():
             self._write_json(self.users_file, {})
+        if not self.smtp_file.exists():
+            self._write_json(self.smtp_file, {
+                "host": "", "port": 587, "username": "", "password": "",
+                "from_address": "", "from_name": "Netboot Orchestrator",
+                "use_tls": True, "use_ssl": False,
+            })
+        if not self.audit_log_file.exists():
+            self._write_json(self.audit_log_file, [])
     
     def _read_json(self, file_path: Path) -> Dict[str, Any]:
         """Read JSON file safely."""
@@ -106,6 +116,41 @@ class Database:
         del users[username]
         self._write_json(self.users_file, users)
         return True
+
+    # SMTP settings
+    def get_smtp_settings(self) -> Dict:
+        return self._read_json(self.smtp_file)
+
+    def save_smtp_settings(self, settings: Dict) -> Dict:
+        current = self._read_json(self.smtp_file)
+        current.update(settings)
+        self._write_json(self.smtp_file, current)
+        return current
+
+    # Audit log
+    def log_audit(self, actor: str, action: str, target: str = "", detail: str = "") -> Dict:
+        try:
+            log = json.loads(self.audit_log_file.read_text())
+        except Exception:
+            log = []
+        entry = {
+            "ts": self._now_iso(),
+            "actor": actor,
+            "action": action,
+            "target": target,
+            "detail": detail,
+        }
+        log.insert(0, entry)   # newest first
+        log = log[:500]        # cap at 500 entries
+        self.audit_log_file.write_text(json.dumps(log, indent=2))
+        return entry
+
+    def get_audit_log(self, limit: int = 100) -> List[Dict]:
+        try:
+            log = json.loads(self.audit_log_file.read_text())
+        except Exception:
+            log = []
+        return log[:limit]
 
     # Device/Profile operations
     def get_device(self, mac: str) -> Optional[Dict]:

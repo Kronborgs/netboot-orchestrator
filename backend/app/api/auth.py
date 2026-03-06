@@ -102,6 +102,12 @@ class SetupRequest(BaseModel):
     password: str
 
 
+class CreateUserRequest(BaseModel):
+    username: str
+    password: str
+    role: str = "admin"
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -144,6 +150,7 @@ async def first_run_setup(body: SetupRequest, db: Database = Depends(get_db)):
 
     hashed = _hash_password(body.password)
     user = db.create_user(body.username.strip(), hashed, role="admin")
+    db.log_audit("system", "user.created", user["username"], "First-run setup")
 
     token = _create_access_token({"sub": user["username"], "role": user["role"]})
     return TokenResponse(access_token=token, role=user["role"])
@@ -181,6 +188,28 @@ async def list_users(
     return db.list_users()
 
 
+@router.post("/users")
+async def create_user(
+    body: CreateUserRequest,
+    current_user: dict = Depends(require_admin),
+    db: Database = Depends(get_db),
+):
+    """Create an additional user account (admin only)."""
+    uname = body.username.strip()
+    if len(uname) < 3:
+        raise HTTPException(status_code=422, detail="Username must be at least 3 characters")
+    if len(body.password) < 6:
+        raise HTTPException(status_code=422, detail="Password must be at least 6 characters")
+    if body.role not in ("admin",):
+        raise HTTPException(status_code=422, detail="Invalid role; only 'admin' is supported")
+    if db.get_user(uname):
+        raise HTTPException(status_code=409, detail="Username already exists")
+    hashed = _hash_password(body.password)
+    user = db.create_user(uname, hashed, role=body.role)
+    db.log_audit(current_user["username"], "user.created", uname, f"role={body.role}")
+    return {k: v for k, v in user.items() if k != "hashed_password"}
+
+
 @router.delete("/users/{username}")
 async def delete_user(
     username: str,
@@ -191,5 +220,6 @@ async def delete_user(
     if not db.get_user(username):
         raise HTTPException(status_code=404, detail="User not found")
     db.delete_user(username)
+    db.log_audit(current_user["username"], "user.deleted", username)
     logger.info("User '%s' deleted by '%s'", username, current_user["username"])
     return {"deleted": username}

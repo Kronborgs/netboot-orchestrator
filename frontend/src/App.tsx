@@ -2,13 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { Dashboard } from './pages/Dashboard';
 import { Inventory } from './pages/Inventory';
 import { SetupGuide } from './pages/SetupGuide';
+import { Administration } from './pages/Administration';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { LoginPage } from './components/LoginPage';
 import { SetupPage } from './components/SetupPage';
 import { getApiUrl, apiFetch } from './api/client';
 import './styles/index.css';
 
-type Page = 'dashboard' | 'inventory' | 'setup';
+type Page = 'dashboard' | 'inventory' | 'setup' | 'administration';
 type InventoryTab = 'devices' | 'iscsi' | 'installers' | 'logs' | 'wizard';
 
 const LOGO_URL = 'https://raw.githubusercontent.com/Kronborgs/netboot-orchestrator/main/docs/logo.png';
@@ -55,7 +56,7 @@ function AppShell() {
     fetch(apiUrl)
       .then(res => res.json())
       .then(data => setVersion(data.version || ''))
-      .catch(() => setVersion('2026-03-06-V214'));
+      .catch(() => setVersion('2026-03-06-V215'));
   }, []);
 
   // Check if any admin exists (first-run detection)
@@ -131,6 +132,14 @@ function AppShell() {
           >
             ⚙️ Setup Guide
           </button>
+          {isAdmin && (
+            <button
+              className={`side-nav-btn side-nav-btn--admin ${currentPage === 'administration' ? 'active' : ''}`}
+              onClick={() => setCurrentPage('administration')}
+            >
+              🔐 Administration
+            </button>
+          )}
         </nav>
 
         <div className="sidebar-footer">
@@ -181,6 +190,7 @@ function AppShell() {
             <Inventory initialTab={inventoryTab} isAdmin={isAdmin} />
           )}
           {currentPage === 'setup' && <SetupGuide />}
+          {currentPage === 'administration' && isAdmin && <Administration />}
         </main>
 
         <footer className="app-footer">
