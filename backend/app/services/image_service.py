@@ -451,6 +451,17 @@ class IscsiService:
         if not ok:
             return None, None, f"tgtadm add LUN failed: {err}"
 
+        # Disable write-back cache (use write-through) so that SCSI SYNCHRONIZE CACHE
+        # commands from Windows Setup are acknowledged immediately. Without this, Windows
+        # installation freezes at 100% waiting for a cache-flush confirmation that tgtd
+        # never sends — especially over Unraid shfs (FUSE) where async I/O flush ordering
+        # is unreliable.
+        self._run_cmd([
+            "tgtadm", "--lld", "iscsi", "--op", "update",
+            "--mode", "logicalunit", "--tid", str(tid),
+            "--lun", "1", "--params", "write-cache-state=0",
+        ])
+
         ok, _, err = self._run_cmd([
             "tgtadm", "--lld", "iscsi", "--op", "bind",
             "--mode", "target", "--tid", str(tid), "-I", "ALL",
