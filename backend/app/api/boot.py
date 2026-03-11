@@ -1206,7 +1206,13 @@ chain {base}/ipxe/menu
     target_name = device_image.get("target_name", f"{iscsi.iqn_prefix}:{device_image['id']}")
     san_urls = _build_iscsi_urls(boot_ip, target_name)
     san_url = san_urls[0]
-    sanboot_cmd = " || ".join([f"sanboot {url}" for url in san_urls]) + " || goto iscsi_failed"
+    # Use sanhook to attach the iSCSI target AND populate iBFT (iSCSI Boot Firmware Table).
+    # iBFT is required so that Windows phase 2 ("Installing Windows") can configure the
+    # Microsoft iSCSI Initiator (msiscsi.sys) as a boot-critical service.
+    # Without iBFT, Windows Setup fails with "a required driver could not be installed"
+    # at the end of phase 2. sanboot alone boots the disk but does NOT write iBFT.
+    sanhook_cmd = " || ".join([f"sanhook {url}" for url in san_urls]) + " || goto iscsi_failed"
+    sanboot_cmd = f"{sanhook_cmd}\nsanboot --no-describe || goto iscsi_failed"
     logger.info(
         f"iSCSI boot resolved: mac={mac} image_id={device_image.get('id')} target={target_name} "
         f"san_candidates={san_urls}"
