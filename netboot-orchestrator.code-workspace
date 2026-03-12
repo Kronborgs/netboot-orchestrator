@@ -18,7 +18,8 @@
 			"git push": true,
 			"npm install": true,
 			"npm audit": true,
-			"npm run build": true
+			"npm run build": true,
+			"Set-Content": true
 		}
 	}
 }

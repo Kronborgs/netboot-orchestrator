@@ -128,8 +128,8 @@ set SYSTEM_PORTAL={system_portal}
 set SYSTEM_TARGET={system_target}
 
 if not "%SYSTEM_TARGET%"=="" (
-    echo Attempting WinPE iSCSI attach for system disk...
-    call :attach_iscsi "%SYSTEM_PORTAL%" "%SYSTEM_TARGET%"
+    echo Attempting WinPE iSCSI attach for system disk (persistent^)...
+    call :attach_iscsi "%SYSTEM_PORTAL%" "%SYSTEM_TARGET%" persistent
 )
 
 if not "%INSTALLER_TARGET%"=="" (
@@ -323,7 +323,9 @@ call :trace launching setup from %SETUP_PATH%
 call :s %DRIVE%
 call :u
 call :t
-start "" %SETUP_PATH%
+set UNATTEND_ARG=
+if exist X:\unattend.xml set UNATTEND_ARG=/unattend:X:\unattend.xml
+start "" %SETUP_PATH% %UNATTEND_ARG%
 set SETUP_EXIT=running
 for /L %%S in (1,1,180) do (
     ping -n 6 127.0.0.1 >nul 2>&1
@@ -361,6 +363,7 @@ exit /b 0
 :attach_iscsi
 set PORTAL=%~1
 set TARGET=%~2
+set PERSISTENT=%~3
 if "%PORTAL%"=="" set PORTAL={boot_ip}
 if "%TARGET%"=="" exit /b 0
 where iscsicli.exe >nul 2>&1
@@ -368,11 +371,18 @@ if errorlevel 1 (
     call :trace iscsicli.exe unavailable in this WinPE
     exit /b 0
 )
-call :trace attach iscsi target=%TARGET% portal=%PORTAL%
+call :trace attach iscsi target=%TARGET% portal=%PORTAL% persistent=%PERSISTENT%
 iscsicli QAddTargetPortal %PORTAL% 3260 >nul 2>&1
 iscsicli AddTargetPortal %PORTAL% 3260 >nul 2>&1
 iscsicli QLoginTarget %TARGET% >nul 2>&1
 iscsicli LoginTarget %TARGET% T * * * * * * * * * * * * * * * 0 >nul 2>&1
+if /i "%PERSISTENT%"=="persistent" (
+    rem Make this a persistent login so Windows Setup sees the iSCSI target
+    rem as a boot-critical device and configures msiscsi.sys as BOOT_START.
+    rem Without this, Setup fails with "required driver could not be installed".
+    iscsicli PersistentLoginTarget %TARGET% T %PORTAL% 3260 * * * * * * * * * * * * * * 0 >nul 2>&1
+    call :trace persistent login registered for %TARGET%
+)
 ping -n 3 127.0.0.1 >nul 2>&1
 wpeutil UpdateBootInfo >nul 2>&1
 exit /b 0
@@ -466,6 +476,51 @@ where curl.exe >nul 2>&1 && curl.exe -fsS "%LOG_URL%" >nul 2>&1 && exit /b 0
 exit /b 0
 """
     return PlainTextResponse(script)
+
+
+@router.get("/winpe/unattend.xml")
+async def winpe_unattend_xml(
+    portal: str = Query(""),
+    target: str = Query(""),
+):
+    """Unattend.xml that configures Microsoft iSCSI Initiator as BOOT_START.
+    Injected via wimboot so Windows Setup recognises the iSCSI disk as a
+    boot device and does not abort with 'required driver could not be installed'."""
+    portal_val = portal.strip() or "192.168.1.50"
+    target_val = target.strip()
+    iscsi_section = ""
+    if target_val:
+        iscsi_section = f"""        <component name="Microsoft-Windows-iSCSI-Initiator" processorArchitecture="amd64"
+                    publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS"
+                    xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+            <StartMode>Boot</StartMode>
+            <Targets>
+                <Target wcm:action="add">
+                    <TargetName>{target_val}</TargetName>
+                    <TargetPortal>{portal_val}</TargetPortal>
+                    <TargetPortalPortNumber>3260</TargetPortalPortNumber>
+                    <AuthenticationType>None</AuthenticationType>
+                    <LoginOptions>
+                        <LoginOption wcm:action="add">
+                            <Id>1</Id>
+                            <IsPersistent>true</IsPersistent>
+                            <ReportToPnP>true</ReportToPnP>
+                        </LoginOption>
+                    </LoginOptions>
+                </Target>
+            </Targets>
+        </component>"""
+
+    xml = f"""<?xml version="1.0" encoding="utf-8"?>
+<unattend xmlns="urn:schemas-microsoft-com:unattend">
+    <settings pass="windowsPE">
+{iscsi_section}
+    </settings>
+    <settings pass="specialize">
+    </settings>
+</unattend>
+"""
+    return PlainTextResponse(xml, media_type="application/xml")
 
 
 @router.get("/winpe/winpeshl.ini")
@@ -1395,6 +1450,10 @@ chain {base}/ipxe/menu
     installer_meta_portal = ""
     installer_meta_iqn = ""
     winpeshl_url = f"http://{boot_ip}:8000/api/v1/boot/winpe/winpeshl.ini"
+    unattend_url = (
+        f"http://{boot_ip}:8000/api/v1/boot/winpe/unattend.xml"
+        f"?portal={quote(system_portal_ip, safe='')}&target={quote(system_target_iqn, safe='')}"
+    )
     iso_hook_cmd = ""
     iso_info_line = ""
     installer_iso_url = ""
@@ -1570,6 +1629,7 @@ initrd {wim_url} boot.wim || goto windows_failed
 initrd {startnet_url} startnet.cmd || goto windows_failed
 initrd {startnet_url} Windows/System32/startnet.cmd || goto windows_failed
 initrd {startnet_url} windows/system32/startnet.cmd || goto windows_failed
+initrd {unattend_url} unattend.xml || goto windows_failed
 initrd {winpeshl_url} winpeshl.ini || goto windows_failed
 initrd {winpeshl_url} Windows/System32/winpeshl.ini || goto windows_failed
 initrd {winpeshl_url} windows/system32/winpeshl.ini || goto windows_failed
