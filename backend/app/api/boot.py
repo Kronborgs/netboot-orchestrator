@@ -499,14 +499,9 @@ async def winpe_unattend_xml(
                     <TargetName>{target_val}</TargetName>
                     <TargetPortal>{portal_val}</TargetPortal>
                     <TargetPortalPortNumber>3260</TargetPortalPortNumber>
-                    <AuthenticationType>None</AuthenticationType>
-                    <LoginOptions>
-                        <LoginOption wcm:action="add">
-                            <Id>1</Id>
-                            <IsPersistent>true</IsPersistent>
-                            <ReportToPnP>true</ReportToPnP>
-                        </LoginOption>
-                    </LoginOptions>
+                    <AuthenticationType>NONE</AuthenticationType>
+                    <IsPersistent>true</IsPersistent>
+                    <ReportToPnP>true</ReportToPnP>
                 </Target>
             </Targets>
         </component>"""
@@ -622,7 +617,12 @@ def _build_iscsi_urls(boot_ip: str, target_name: str) -> list[str]:
 
 
 def _parse_iscsi_san_url(san_url: str) -> tuple[str, str]:
-    """Parse iPXE iSCSI SAN URL into (portal_ip, target_iqn)."""
+    """Parse iPXE iSCSI SAN URL into (portal_ip, target_iqn).
+
+    iPXE iSCSI URL format: iscsi:<portal>:<tcp-type>:<port>:<lun>:<iqn>
+    The IQN itself contains ':' (e.g. iqn.2024.netboot:disk-abc), so we must
+    rejoin parts[4:] rather than taking parts[-1] which gives only the suffix.
+    """
     if not san_url:
         return "", ""
 
@@ -632,7 +632,8 @@ def _parse_iscsi_san_url(san_url: str) -> tuple[str, str]:
 
     parts = raw.split(":")
     portal_ip = parts[0].strip() if parts else ""
-    target_iqn = parts[-1].strip() if len(parts) >= 2 else ""
+    # Fields: [0]=portal [1]=tcp-type [2]=port [3]=lun [4+]=IQN (may contain ':')
+    target_iqn = ":".join(parts[4:]).strip() if len(parts) >= 5 else parts[-1].strip() if len(parts) >= 2 else ""
     return portal_ip, target_iqn
 
 
