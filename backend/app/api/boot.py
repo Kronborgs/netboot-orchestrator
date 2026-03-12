@@ -251,6 +251,15 @@ wpeinit
 wpeutil InitializeNetwork >nul 2>&1
 call :trace wpeinit completed
 call :log_http "{log_url_base}winpe_startnet_started"
+rem Log first acquired IPv4 address
+for /f "tokens=2 delims=:" %%I in ('ipconfig 2^>nul ^| findstr /i "IPv4"') do (
+    set WINPE_IP=%%I
+    set WINPE_IP=!WINPE_IP: =!
+    call :log_http "{log_url_base}winpe_ip_!WINPE_IP!"
+    call :trace WinPE IP = !WINPE_IP!
+    goto :ip_logged
+)
+:ip_logged
 call :upload_trace_now
 echo.
 echo ================================================
@@ -305,7 +314,11 @@ if exist %DRIVE%:\sources\setup.exe (
     if not defined SETUP_PATH set SETUP_PATH=%DRIVE%:\sources\setup.exe
 )
 
-if not defined HAS_SETUP exit /b 1
+if not defined HAS_SETUP (
+    call :trace scan_drive %DRIVE%: no setup.exe
+    exit /b 1
+)
+call :log_http "{log_url_base}scan_drive_%DRIVE%_setup_found"
 
 if exist %DRIVE%:\sources\install.wim set HAS_INSTALL_IMAGE=1
 if exist %DRIVE%:\sources\install.esd set HAS_INSTALL_IMAGE=1
@@ -315,8 +328,10 @@ for %%I in (%DRIVE%:\sources\install*.swm) do (
 
 if not defined HAS_INSTALL_IMAGE (
     call :trace skip drive %DRIVE%: setup found but no install.wim/esd/swm
+    call :log_http "{log_url_base}scan_drive_%DRIVE%_no_install_image"
     exit /b 1
 )
+call :log_http "{log_url_base}scan_drive_%DRIVE%_install_image_ok"
 
 echo Found installer media on %DRIVE%:
 call :trace launching setup from %SETUP_PATH%
@@ -370,20 +385,52 @@ if errorlevel 1 (
     exit /b 0
 )
 call :trace attach iscsi target=%TARGET% portal=%PORTAL% persistent=%PERSISTENT%
+call :log_http "{log_url_base}iscsi_attach_start__%TARGET%"
+
 iscsicli QAddTargetPortal %PORTAL% 3260 >nul 2>&1
-iscsicli AddTargetPortal %PORTAL% 3260 >nul 2>&1
+if errorlevel 1 (call :trace QAddTargetPortal failed rc=!errorlevel!) else (call :trace QAddTargetPortal ok)
+
+iscsicli AddTargetPortal %PORTAL% 3260 2>> "%TRACE_FILE%" >nul
+set PORTAL_RC=!errorlevel!
+call :trace AddTargetPortal rc=!PORTAL_RC!
+call :log_http "{log_url_base}iscsi_portal_rc_!PORTAL_RC!"
+
 iscsicli QLoginTarget %TARGET% >nul 2>&1
-iscsicli LoginTarget %TARGET% T * * * * * * * * * * * * * * * 0 >nul 2>&1
+set QLOGIN_RC=!errorlevel!
+call :trace QLoginTarget rc=!QLOGIN_RC!
+
+iscsicli LoginTarget %TARGET% T * * * * * * * * * * * * * * * 0 2>> "%TRACE_FILE%" >nul
+set LOGIN_RC=!errorlevel!
+call :trace LoginTarget rc=!LOGIN_RC!
+call :log_http "{log_url_base}iscsi_login_rc_!LOGIN_RC!"
+
 if /i "%PERSISTENT%"=="persistent" (
     rem Make this a persistent login so Windows Setup sees the iSCSI target
     rem as a boot-critical device and configures msiscsi.sys as BOOT_START.
     rem Without this, Setup fails with "required driver could not be installed".
-    rem Correct param order: TargetName ReportToPnP InitiatorInstance(*) InitiatorPort(*) TargetPortal Port ...
-    iscsicli PersistentLoginTarget %TARGET% T * * %PORTAL% 3260 * * * * * * * * * * * * 0 >nul 2>&1
-    call :trace persistent login registered for %TARGET%
+    rem Correct param order: TargetName T * * PortalAddress Port ...
+    iscsicli PersistentLoginTarget %TARGET% T * * %PORTAL% 3260 * * * * * * * * * * * * 0 2>> "%TRACE_FILE%" >nul
+    set PERSIST_RC=!errorlevel!
+    call :trace PersistentLoginTarget rc=!PERSIST_RC!
+    call :log_http "{log_url_base}iscsi_persistent_rc_!PERSIST_RC!"
 )
+
+rem Check session list after attach
+iscsicli ListTargets 2>> "%TRACE_FILE%" >nul
+iscsicli SessionList 2>> "%TRACE_FILE%" >nul
+
 ping -n 3 127.0.0.1 >nul 2>&1
 wpeutil UpdateBootInfo >nul 2>&1
+
+rem Log disk discovery after iSCSI attach
+set DISK_COUNT=0
+for /F "skip=1 tokens=1" %%D in ('wmic diskdrive get DeviceID 2^>nul') do (
+    if not "%%D"=="" set /a DISK_COUNT+=1
+    call :trace disk found: %%D
+)
+call :trace disk_count=!DISK_COUNT!
+call :log_http "{log_url_base}iscsi_disks_found_!DISK_COUNT!"
+call :upload_trace_now
 exit /b 0
 
 :trace
