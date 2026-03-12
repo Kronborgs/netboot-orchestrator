@@ -323,9 +323,7 @@ call :trace launching setup from %SETUP_PATH%
 call :s %DRIVE%
 call :u
 call :t
-set UNATTEND_ARG=
-if exist X:\\unattend.xml set UNATTEND_ARG=/unattend:X:\\unattend.xml
-start "" %SETUP_PATH% %UNATTEND_ARG%
+start "" %SETUP_PATH%
 set SETUP_EXIT=running
 for /L %%S in (1,1,180) do (
     ping -n 6 127.0.0.1 >nul 2>&1
@@ -1451,10 +1449,6 @@ chain {base}/ipxe/menu
     installer_meta_portal = ""
     installer_meta_iqn = ""
     winpeshl_url = f"http://{boot_ip}:8000/api/v1/boot/winpe/winpeshl.ini"
-    unattend_url = (
-        f"http://{boot_ip}:8000/api/v1/boot/winpe/unattend.xml"
-        f"?portal={quote(system_portal_ip, safe='')}&target={quote(system_target_iqn, safe='')}"
-    )
     iso_hook_cmd = ""
     iso_info_line = ""
     installer_iso_url = ""
@@ -1630,7 +1624,6 @@ initrd {wim_url} boot.wim || goto windows_failed
 initrd {startnet_url} startnet.cmd || goto windows_failed
 initrd {startnet_url} Windows/System32/startnet.cmd || goto windows_failed
 initrd {startnet_url} windows/system32/startnet.cmd || goto windows_failed
-initrd {unattend_url} unattend.xml || goto windows_failed
 initrd {winpeshl_url} winpeshl.ini || goto windows_failed
 initrd {winpeshl_url} Windows/System32/winpeshl.ini || goto windows_failed
 initrd {winpeshl_url} windows/system32/winpeshl.ini || goto windows_failed
