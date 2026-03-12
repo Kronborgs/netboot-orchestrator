@@ -1,6 +1,6 @@
 # Netboot Orchestrator - Project Guide
 
-**Version:** 2026-03-12-V220  
+**Version:** 2026-03-12-V221  
 **Status:** Operational (PXE + iSCSI + WebUI + CI/CD)  
 **Repository:** `Kronborgs/netboot-orchestrator`
 
