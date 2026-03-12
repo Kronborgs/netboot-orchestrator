@@ -87,7 +87,7 @@ This is useful when validating session attribution and fallback behavior across 
 
 ## Versioning
 - Runtime version source-of-truth is the `VERSION` file in the repository/image
-- Current version: `2026-03-12-V227`
+- Current version: `2026-03-12-V228`
 
 ## Support
 For issues and feature requests, use GitHub Issues.

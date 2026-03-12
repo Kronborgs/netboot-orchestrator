@@ -548,6 +548,12 @@ class Database:
         existing["session_started_at"] = self._now_iso()
         existing["session_id"] = str(uuid4())
         existing["last_seen"] = self._now_iso()
+        # Reset stall tracking so a new session starts fresh
+        existing["stall_last_total_bytes"] = None
+        existing["stall_last_progress_at"] = None
+        existing["stall_last_progress_log_at"] = None
+        existing["stall_state"] = "idle"
+        existing["winpe_missing_logged_at"] = ""
 
         data[key] = existing
         self._write_json(self.device_transfer_file, data)

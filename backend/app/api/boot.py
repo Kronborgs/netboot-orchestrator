@@ -248,25 +248,18 @@ where cscript.exe >nul 2>&1 && if not exist "%HTTP_HELPER%" (
 )
 2>nul (echo [startnet] begin %DATE% %TIME% > "%TRACE_FILE%") || set TRACE_ENABLED=
 wpeinit
-wpeutil InitializeNetwork >nul 2>&1
-call :trace wpeinit completed
-rem Wait up to 20s for DHCP to assign a real IPv4 (not APIPA 169.254.x.x)
+rem wpeutil WaitForNetwork blocks until network interface is up (or times out)
+wpeutil WaitForNetwork >nul 2>&1
+call :trace wpeinit and WaitForNetwork completed
+em Try to get IP via PowerShell (findstr/find not available in minimal WinPE)
 set WINPE_IP=
-for /L %%W in (1,1,20) do (
-    for /f "tokens=2 delims=:" %%I in ('ipconfig 2^>nul ^| findstr /i "IPv4" ^| findstr /v "169.254"') do (
-        set WINPE_IP=%%I
-        set WINPE_IP=!WINPE_IP: =!
-        goto :net_ready
-    )
-    ping -n 2 127.0.0.1 >nul 2>&1
-)
-:net_ready
+where powershell.exe >nul 2>&1 && for /f "tokens=*" %%I in ('powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 2>$null | Where-Object {$_.IPAddress -notlike '169.254*'} | Select-Object -First 1).IPAddress" 2^>nul') do set WINPE_IP=%%I
 call :trace WinPE IP = !WINPE_IP!
 call :log_http "{log_url_base}winpe_startnet_started"
 if defined WINPE_IP (
     call :log_http "{log_url_base}winpe_ip_!WINPE_IP!"
 ) else (
-    call :log_http "{log_url_base}winpe_ip_none_dhcp_timeout"
+    call :log_http "{log_url_base}winpe_ip_none"
 )
 call :upload_trace_now
 echo.
