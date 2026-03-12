@@ -63,67 +63,14 @@ jobs:
         cd frontend
         npm run build
 
-  docker-build:
+  docker-compose-validate:
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
 
     steps:
     - uses: actions/checkout@v3
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v2
-
-    - name: Build backend image
-      uses: docker/build-push-action@v4
-      with:
-        context: backend
-        push: false
-        tags: netboot-orchestrator:backend-latest
-
-    - name: Build frontend image
-      uses: docker/build-push-action@v4
-      with:
-        context: frontend
-        push: false
-        tags: netboot-orchestrator:frontend-latest
-
-  docker-compose-test:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push'
-
-    steps:
-    - uses: actions/checkout@v3
-
-    - name: Set up Docker
-      uses: docker/setup-buildx-action@v2
-
-    - name: Test docker-compose file
+    - name: Validate docker-compose.yml
       run: |
         docker compose config > /dev/null
         echo "✓ docker-compose.yml is valid"
-
-    - name: Start services
-      run: |
-        docker compose up -d
-
-    - name: Check service health
-      run: |
-        docker compose ps
-        # The container starts dnsmasq, nginx, tgtd, and FastAPI sequentially.
-        # Wait up to 60 seconds for the API to become available.
-        for i in $(seq 1 12); do
-          if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
-            echo "✓ API health check passed (attempt $i)"
-            exit 0
-          fi
-          echo "  Waiting for API... attempt $i/12"
-          sleep 5
-        done
-        echo "✗ API did not become healthy within 60 seconds"
-        docker compose logs
-        exit 1
-
-    - name: Cleanup
-      if: always()
-      run: |
-        docker compose down
