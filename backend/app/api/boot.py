@@ -250,16 +250,24 @@ where cscript.exe >nul 2>&1 && if not exist "%HTTP_HELPER%" (
 wpeinit
 wpeutil InitializeNetwork >nul 2>&1
 call :trace wpeinit completed
-call :log_http "{log_url_base}winpe_startnet_started"
-rem Log first acquired IPv4 address
-for /f "tokens=2 delims=:" %%I in ('ipconfig 2^>nul ^| findstr /i "IPv4"') do (
-    set WINPE_IP=%%I
-    set WINPE_IP=!WINPE_IP: =!
-    call :log_http "{log_url_base}winpe_ip_!WINPE_IP!"
-    call :trace WinPE IP = !WINPE_IP!
-    goto :ip_logged
+rem Wait up to 20s for DHCP to assign a real IPv4 (not APIPA 169.254.x.x)
+set WINPE_IP=
+for /L %%W in (1,1,20) do (
+    for /f "tokens=2 delims=:" %%I in ('ipconfig 2^>nul ^| findstr /i "IPv4" ^| findstr /v "169.254"') do (
+        set WINPE_IP=%%I
+        set WINPE_IP=!WINPE_IP: =!
+        goto :net_ready
+    )
+    ping -n 2 127.0.0.1 >nul 2>&1
 )
-:ip_logged
+:net_ready
+call :trace WinPE IP = !WINPE_IP!
+call :log_http "{log_url_base}winpe_startnet_started"
+if defined WINPE_IP (
+    call :log_http "{log_url_base}winpe_ip_!WINPE_IP!"
+) else (
+    call :log_http "{log_url_base}winpe_ip_none_dhcp_timeout"
+)
 call :upload_trace_now
 echo.
 echo ================================================
