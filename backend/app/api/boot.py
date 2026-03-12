@@ -324,7 +324,7 @@ call :s %DRIVE%
 call :u
 call :t
 set UNATTEND_ARG=
-if exist X:\unattend.xml set UNATTEND_ARG=/unattend:X:\unattend.xml
+if exist X:\\unattend.xml set UNATTEND_ARG=/unattend:X:\\unattend.xml
 start "" %SETUP_PATH% %UNATTEND_ARG%
 set SETUP_EXIT=running
 for /L %%S in (1,1,180) do (
