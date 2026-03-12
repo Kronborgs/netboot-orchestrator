@@ -378,7 +378,8 @@ if /i "%PERSISTENT%"=="persistent" (
     rem Make this a persistent login so Windows Setup sees the iSCSI target
     rem as a boot-critical device and configures msiscsi.sys as BOOT_START.
     rem Without this, Setup fails with "required driver could not be installed".
-    iscsicli PersistentLoginTarget %TARGET% T %PORTAL% 3260 * * * * * * * * * * * * * * 0 >nul 2>&1
+    rem Correct param order: TargetName ReportToPnP InitiatorInstance(*) InitiatorPort(*) TargetPortal Port ...
+    iscsicli PersistentLoginTarget %TARGET% T * * %PORTAL% 3260 * * * * * * * * * * * * 0 >nul 2>&1
     call :trace persistent login registered for %TARGET%
 )
 ping -n 3 127.0.0.1 >nul 2>&1
@@ -777,15 +778,21 @@ async def download_winpe_log(mac: str = Query(...), name: str = Query("setupact.
 # =====================================================================
 
 @router.get("/ipxe/menu")
-async def boot_ipxe_main_menu(db: Database = Depends(get_db)):
+async def boot_ipxe_main_menu(mac: str = Query(""), source: str = Query(""), db: Database = Depends(get_db)):
     """Main iPXE boot menu — entry point for all PXE clients."""
     version = get_version()
     base = _menu_base_url()
     boot_ip = _env("BOOT_SERVER_IP", "192.168.1.50")
     logo_url = f"http://{boot_ip}:8000/api/v1/boot/ipxe/logo.png"
 
-    # Log boot event
-    db.add_boot_log("unknown", "menu_loaded", "Main menu loaded")
+    # Log boot event with MAC and source context
+    log_mac = mac.strip() or "unknown"
+    log_detail = "iPXE boot menu loaded"
+    if source == "winpe":
+        log_detail = "WinPE chain-loaded iPXE menu (WinPE finished or fell through)"
+    elif source:
+        log_detail = f"iPXE menu loaded (source={source})"
+    db.add_boot_log(log_mac, "menu_loaded", log_detail)
 
     script = f"""#!ipxe
 # {BRANDING}
@@ -817,10 +824,10 @@ choose selected || goto shell
 goto ${{selected}}
 
 :os_install
-chain {base}/ipxe/os-menu || goto main_menu
+chain {base}/ipxe/os-menu?mac=${{net0/mac}} || goto main_menu
 
 :create_iscsi
-chain {base}/ipxe/iscsi-create || goto main_menu
+chain {base}/ipxe/iscsi-create?mac=${{net0/mac}} || goto main_menu
 
 :link_iscsi
 chain {base}/ipxe/iscsi-link?mac=${{net0/mac}} || goto main_menu
