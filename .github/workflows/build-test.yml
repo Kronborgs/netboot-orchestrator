@@ -102,20 +102,26 @@ jobs:
         docker compose config > /dev/null
         echo "✓ docker-compose.yml is valid"
 
-    - name: Build all services
-      run: |
-        docker compose build
-
     - name: Start services
       run: |
         docker compose up -d
-        sleep 10
 
     - name: Check service health
       run: |
         docker compose ps
-        curl -f http://localhost:8000/health || exit 1
-        echo "✓ API health check passed"
+        # The container starts dnsmasq, nginx, tgtd, and FastAPI sequentially.
+        # Wait up to 60 seconds for the API to become available.
+        for i in $(seq 1 12); do
+          if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
+            echo "✓ API health check passed (attempt $i)"
+            exit 0
+          fi
+          echo "  Waiting for API... attempt $i/12"
+          sleep 5
+        done
+        echo "✗ API did not become healthy within 60 seconds"
+        docker compose logs
+        exit 1
 
     - name: Cleanup
       if: always()
