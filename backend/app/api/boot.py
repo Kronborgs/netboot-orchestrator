@@ -122,6 +122,13 @@ async def winpe_startnet_cmd(
         host_ip = host_header.split(":")[0].strip()
         if host_ip and host_ip not in ("localhost", "127.0.0.1", ""):
             boot_ip = host_ip
+            # Portal IPs come from meta= (set server-side via BOOT_SERVER_IP env).
+            # Override them to use the same IP WinPE can actually reach, otherwise
+            # the ping check and iscsicli both target the wrong/unreachable IP.
+            if portal_ip:
+                portal_ip = boot_ip
+            if system_portal_ip:
+                system_portal_ip = boot_ip
     mac_for_url = (mac or "").strip().lower() or "unknown"
     mac_encoded = quote(mac_for_url, safe=':')
     log_url_base = (
@@ -448,10 +455,12 @@ if errorlevel 1 (
     )
 )
 
-rem Test portal IP reachability before running iscsicli - it can hang for minutes if portal is unreachable
-ping -n 1 -w 3000 %PORTAL% >nul 2>&1
-if errorlevel 1 (
-    call :trace portal %PORTAL% unreachable - ping failed - skipping iscsicli
+rem Test portal reachability: ICMP ping first, TCP:3260 fallback (ICMP may be firewalled on some setups)
+set PORTAL_UP=
+ping -n 1 -w 2000 %PORTAL% >nul 2>&1 && set PORTAL_UP=1
+if not defined PORTAL_UP where powershell.exe >nul 2>&1 && powershell -NoProfile -NonInteractive -Command "try{{$t=New-Object System.Net.Sockets.TcpClient;$t.Connect($env:PORTAL,3260);$t.Close();exit 0}}catch{{exit 1}}" >nul 2>&1 && set PORTAL_UP=1
+if not defined PORTAL_UP (
+    call :trace portal %PORTAL% unreachable via ICMP and TCP:3260 - skipping iscsicli
     call :log_http "{log_url_base}iscsi_portal_unreachable"
     exit /b 0
 )
