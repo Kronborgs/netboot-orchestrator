@@ -528,6 +528,7 @@ class IscsiService:
             "tgtadm", "--lld", "iscsi", "--op", "new",
             "--mode", "logicalunit", "--tid", str(tid),
             "--lun", "1", "--backing-store", str(installer_file_path), "--device-type", "cd",
+            "--bsopts", "rdonly=1",
         ])
         lun_mode = "cd"
         if not ok:
@@ -539,6 +540,7 @@ class IscsiService:
                 "tgtadm", "--lld", "iscsi", "--op", "new",
                 "--mode", "logicalunit", "--tid", str(tid),
                 "--lun", "1", "--backing-store", str(installer_file_path),
+                "--bsopts", "rdonly=1",
             ])
             if not ok2:
                 self._run_cmd([
