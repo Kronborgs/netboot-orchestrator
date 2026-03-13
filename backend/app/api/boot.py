@@ -251,9 +251,9 @@ wpeinit
 rem wpeutil WaitForNetwork blocks until network interface is up (or times out)
 wpeutil WaitForNetwork >nul 2>&1
 call :trace wpeinit and WaitForNetwork completed
-em Try to get IP via PowerShell (findstr/find not available in minimal WinPE)
+rem Try to get IP via PowerShell (findstr/find not available in minimal WinPE)
 set WINPE_IP=
-where powershell.exe >nul 2>&1 && for /f "tokens=*" %%I in ('powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 2>$null | Where-Object {$_.IPAddress -notlike '169.254*'} | Select-Object -First 1).IPAddress" 2^>nul') do set WINPE_IP=%%I
+where powershell.exe >nul 2>&1 && for /f "tokens=*" %%I in ('powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 2>$null | Where-Object {{$_.IPAddress -notlike '169.254*'}} | Select-Object -First 1).IPAddress" 2^>nul') do set WINPE_IP=%%I
 call :trace WinPE IP = !WINPE_IP!
 call :log_http "{log_url_base}winpe_startnet_started"
 if defined WINPE_IP (
