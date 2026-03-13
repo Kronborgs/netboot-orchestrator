@@ -73,6 +73,7 @@ BRANDING = "Netboot Orchestrator is designed by Kenneth Kronborg AI Team"
 @router.get("/winpe/startnet.cmd")
 async def winpe_startnet_cmd(
     meta: str = Query(""),
+    db: Database = Depends(get_db),
 ):
     """WinPE startup script that auto-launches Windows setup from installer media."""
     mac = ""
@@ -100,6 +101,13 @@ async def winpe_startnet_cmd(
             target_iqn = ""
             system_portal_ip = ""
             system_target_iqn = ""
+
+    if mac:
+        db.add_boot_log(
+            mac,
+            "winpe_startnet_fetched",
+            f"WinPE running startnet.cmd - portal={portal_ip} target={target_iqn[:50] if target_iqn else 'none'}",
+        )
 
     boot_ip = _env("BOOT_SERVER_IP", "192.168.1.50")
     mac_for_url = (mac or "").strip().lower() or "unknown"
@@ -422,6 +430,15 @@ if errorlevel 1 (
         exit /b 0
     )
 )
+
+rem Test portal IP reachability before running iscsicli - it can hang for minutes if portal is unreachable
+ping -n 1 -w 3000 %PORTAL% >nul 2>&1
+if errorlevel 1 (
+    call :trace portal %PORTAL% unreachable - ping failed - skipping iscsicli
+    call :log_http "{log_url_base}iscsi_portal_unreachable"
+    exit /b 0
+)
+call :trace portal %PORTAL% reachable - proceeding with iscsicli
 
 rem Start Microsoft iSCSI Initiator service (REQUIRED before any iscsicli calls in WinPE)
 rem sc.exe is always available; net.exe is NOT available in minimal WinPE builds
