@@ -328,7 +328,7 @@ export const DeviceList: React.FC = () => {
           : '';
 
         const [logsRes, filesRes] = await Promise.all([
-          apiFetch(`/api/v1/boot/logs?mac=${encodeURIComponent(mac)}&limit=20${sinceQs}`),
+          apiFetch(`/api/v1/boot/logs?mac=${encodeURIComponent(mac)}&limit=50${sinceQs}`),
           apiFetch(`/api/v1/boot/winpe/logs?mac=${encodeURIComponent(mac)}`),
         ]);
 

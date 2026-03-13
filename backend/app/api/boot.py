@@ -77,6 +77,7 @@ def get_db() -> Database:
 @router.get("/winpe/startnet.cmd")
 async def winpe_startnet_cmd(
     meta: str = Query(""),
+    request: Request = None,
     db: Database = Depends(get_db),
 ):
     """WinPE startup script that auto-launches Windows setup from installer media."""
@@ -114,6 +115,13 @@ async def winpe_startnet_cmd(
         )
 
     boot_ip = _env("BOOT_SERVER_IP", "192.168.1.50")
+    # Auto-detect server IP from the request Host header so WinPE uses the same
+    # IP it can already reach (avoids cross-subnet routing failures after wpeinit)
+    if request:
+        host_header = request.headers.get("host", "")
+        host_ip = host_header.split(":")[0].strip()
+        if host_ip and host_ip not in ("localhost", "127.0.0.1", ""):
+            boot_ip = host_ip
     mac_for_url = (mac or "").strip().lower() or "unknown"
     mac_encoded = quote(mac_for_url, safe=':')
     log_url_base = (
@@ -628,8 +636,13 @@ async def winpe_unattend_xml(
 
 
 @router.get("/winpe/winpeshl.ini")
-async def winpe_winpeshl_ini():
+async def winpe_winpeshl_ini(
+    mac: str = Query(""),
+    db: Database = Depends(get_db),
+):
     """Force WinPE shell flow to launch our startnet script."""
+    if mac:
+        db.add_boot_log(mac, "winpe_shell_started", "WinPE shell initialized - running startnet.cmd")
     content = """[LaunchApps]
 %SYSTEMROOT%\\System32\\startnet.cmd
 """
@@ -1565,7 +1578,7 @@ chain {base}/ipxe/menu
     wim_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[3], safe='/')}{mac_qs}"
     installer_meta_portal = ""
     installer_meta_iqn = ""
-    winpeshl_url = f"http://{boot_ip}:8000/api/v1/boot/winpe/winpeshl.ini"
+    winpeshl_url = f"http://{boot_ip}:8000/api/v1/boot/winpe/winpeshl.ini?mac={mac_encoded}"
     iso_hook_cmd = ""
     iso_info_line = ""
     installer_iso_url = ""

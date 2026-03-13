@@ -681,6 +681,9 @@ async def download_os_installer(
                 path=file_path,
                 remote_ip=(request.client.host if request.client else ""),
             )
+        # Log a boot event when boot.wim is fully sent (signals WinPE environment is loading)
+        if mac and file_path.endswith("boot.wim"):
+            db.add_boot_log(mac, "winpe_boot_wim_sent", f"WinPE boot.wim served ({file_size // (1024*1024)} MB) - WinPE environment loading")
         return FileResponse(
             full_path,
             filename=full_path.name,
