@@ -148,10 +148,10 @@ goto :main
 
 :log_http
 set "LOG_URL=%~1"
-where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ $wc = New-Object System.Net.WebClient; $null = $wc.DownloadString($env:LOG_URL); exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && exit /b 0
-where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri $env:LOG_URL -Method Get | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && exit /b 0
+rem curl.exe is always available in WinPE 11 and is the most reliable method
+where curl.exe >nul 2>&1 && curl.exe -fsS --max-time 5 --connect-timeout 3 "%LOG_URL%" >nul 2>&1 && exit /b 0
+where powershell.exe >nul 2>&1 && powershell -NoProfile -NonInteractive -Command "try{[System.Net.WebClient]::new().DownloadString($env:LOG_URL)}catch{}" >nul 2>&1 && exit /b 0
 if defined HTTP_HELPER if exist "%HTTP_HELPER%" where cscript.exe >nul 2>&1 && cscript //nologo "%HTTP_HELPER%" get "%LOG_URL%" >nul 2>&1 && exit /b 0
-where curl.exe >nul 2>&1 && curl.exe -fsS "%LOG_URL%" >nul 2>&1 && exit /b 0
 exit /b 0
 
 :upload_setup
@@ -250,17 +250,10 @@ where cscript.exe >nul 2>&1 && if not exist "%HTTP_HELPER%" (
 wpeinit
 rem wpeutil WaitForNetwork blocks until network interface is up (or times out)
 wpeutil WaitForNetwork >nul 2>&1
+rem Extra 3s for DHCP to assign IP before first HTTP call
+ping -n 4 127.0.0.1 >nul 2>&1
 call :trace wpeinit and WaitForNetwork completed
-rem Try to get IP via PowerShell (findstr/find not available in minimal WinPE)
-set WINPE_IP=
-where powershell.exe >nul 2>&1 && for /f "tokens=*" %%I in ('powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 2>$null | Where-Object {{$_.IPAddress -notlike '169.254*'}} | Select-Object -First 1).IPAddress" 2^>nul') do set WINPE_IP=%%I
-call :trace WinPE IP = !WINPE_IP!
 call :log_http "{log_url_base}winpe_startnet_started"
-if defined WINPE_IP (
-    call :log_http "{log_url_base}winpe_ip_!WINPE_IP!"
-) else (
-    call :log_http "{log_url_base}winpe_ip_none"
-)
 call :upload_trace_now
 echo.
 echo ================================================
@@ -431,17 +424,13 @@ if errorlevel 1 (
 )
 
 rem Start Microsoft iSCSI Initiator service (REQUIRED before any iscsicli calls in WinPE)
-rem sc.exe is always available in WinPE; net.exe is NOT available in minimal WinPE builds
-rem Exit code 2 = already running (fine); 0 = just started
+rem sc.exe is always available; net.exe is NOT available in minimal WinPE builds
+rem Any exit code is acceptable here - we log it and continue regardless
 sc start msiscsi >> "%TRACE_FILE%" 2>&1
 set ISCSI_SVC_RC=!errorlevel!
 if !ISCSI_SVC_RC! EQU 0 ping -n 4 127.0.0.1 >nul 2>&1
 call :trace MSiSCSI service start rc=!ISCSI_SVC_RC!
 call :log_http "{log_url_base}iscsi_svc_rc_!ISCSI_SVC_RC!"
-if !ISCSI_SVC_RC! GTR 2 (
-    call :trace MSiSCSI failed to start - aborting iSCSI attach
-    exit /b 1
-)
 
 call :trace attach iscsi target=%TARGET% portal=%PORTAL% persistent=%PERSISTENT%
 call :log_http "{log_url_base}iscsi_attach_start__%TARGET%"
@@ -569,10 +558,9 @@ exit /b 0
 
 :log_http
 set "LOG_URL=%~1"
-where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ $wc = New-Object System.Net.WebClient; $null = $wc.DownloadString($env:LOG_URL); exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && exit /b 0
-where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Invoke-WebRequest -UseBasicParsing -Uri $env:LOG_URL -Method Get | Out-Null; exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && exit /b 0
+where curl.exe >nul 2>&1 && curl.exe -fsS --max-time 5 --connect-timeout 3 "%LOG_URL%" >nul 2>&1 && exit /b 0
+where powershell.exe >nul 2>&1 && powershell -NoProfile -NonInteractive -Command "try{[System.Net.WebClient]::new().DownloadString($env:LOG_URL)}catch{}" >nul 2>&1 && exit /b 0
 if defined HTTP_HELPER if exist "%HTTP_HELPER%" where cscript.exe >nul 2>&1 && cscript //nologo "%HTTP_HELPER%" get "%LOG_URL%" >nul 2>&1 && exit /b 0
-where curl.exe >nul 2>&1 && curl.exe -fsS "%LOG_URL%" >nul 2>&1 && exit /b 0
 exit /b 0
 """
     return PlainTextResponse(script)

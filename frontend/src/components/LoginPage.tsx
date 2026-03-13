@@ -99,7 +99,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onNeedSetup: _onNeedSetup,
     fetch(getApiUrl('/api/v1/version'))
       .then(r => r.json())
       .then(d => setVersion(d.version || ''))
-      .catch(() => setVersion('2026-03-13-V232'));
+      .catch(() => setVersion('2026-03-13-V233'));
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -189,7 +189,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onNeedSetup: _onNeedSetup,
           )}
         </>
       )}
-      <p className="auth-version">v{version || '2026-03-13-V232'}</p>
+      <p className="auth-version">v{version || '2026-03-13-V233'}</p>
     </div>
   );
 
