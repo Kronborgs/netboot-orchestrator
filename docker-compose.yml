@@ -23,7 +23,7 @@ services:
     network_mode: host
     volumes:
       - ./data:/data
-      - /mnt/user/isos:/isos:ro
+      - /mnt/user/isos:/isos
       - /mnt/user/appdata/netboot-orchestrator/iscsi-images:/iscsi-images
     environment:
       # Boot server IP (your Unraid IP)
