@@ -336,12 +336,17 @@ call :log_http "{log_url_base}scan_drive_%DRIVE%_setup_found"
 
 if exist %DRIVE%:\sources\install.wim set HAS_INSTALL_IMAGE=1
 if exist %DRIVE%:\sources\install.esd set HAS_INSTALL_IMAGE=1
-for %%I in (%DRIVE%:\sources\install*.swm) do (
-    if exist %%~I set HAS_INSTALL_IMAGE=1
-)
+for %%I in (%DRIVE%:\sources\install*.swm) do if exist %%~I set HAS_INSTALL_IMAGE=1
+rem Multi-arch MCT ISOs (Windows 10/11 Media Creation Tool) put install.esd under x64\sources\ or x86\sources\
+if not defined HAS_INSTALL_IMAGE if exist %DRIVE%:\x64\sources\install.wim set HAS_INSTALL_IMAGE=1
+if not defined HAS_INSTALL_IMAGE if exist %DRIVE%:\x64\sources\install.esd set HAS_INSTALL_IMAGE=1
+for %%I in (%DRIVE%:\x64\sources\install*.swm) do if exist %%~I set HAS_INSTALL_IMAGE=1
+if not defined HAS_INSTALL_IMAGE if exist %DRIVE%:\x86\sources\install.wim set HAS_INSTALL_IMAGE=1
+if not defined HAS_INSTALL_IMAGE if exist %DRIVE%:\x86\sources\install.esd set HAS_INSTALL_IMAGE=1
+for %%I in (%DRIVE%:\x86\sources\install*.swm) do if exist %%~I set HAS_INSTALL_IMAGE=1
 
 if not defined HAS_INSTALL_IMAGE (
-    call :trace skip drive %DRIVE%: setup found but no install.wim/esd/swm
+    call :trace skip drive %DRIVE%: setup found but no install.wim/esd/swm in sources or x64/x86 subdirs
     call :log_http "{log_url_base}scan_drive_%DRIVE%_no_install_image"
     exit /b 1
 )
