@@ -150,7 +150,7 @@ goto :main
 set "LOG_URL=%~1"
 rem curl.exe is always available in WinPE 11 and is the most reliable method
 where curl.exe >nul 2>&1 && curl.exe -fsS --max-time 5 --connect-timeout 3 "%LOG_URL%" >nul 2>&1 && exit /b 0
-where powershell.exe >nul 2>&1 && powershell -NoProfile -NonInteractive -Command "try{[System.Net.WebClient]::new().DownloadString($env:LOG_URL)}catch{}" >nul 2>&1 && exit /b 0
+where powershell.exe >nul 2>&1 && powershell -NoProfile -NonInteractive -Command "try{{[System.Net.WebClient]::new().DownloadString($env:LOG_URL)}}catch{{}}" >nul 2>&1 && exit /b 0
 if defined HTTP_HELPER if exist "%HTTP_HELPER%" where cscript.exe >nul 2>&1 && cscript //nologo "%HTTP_HELPER%" get "%LOG_URL%" >nul 2>&1 && exit /b 0
 exit /b 0
 
@@ -559,7 +559,7 @@ exit /b 0
 :log_http
 set "LOG_URL=%~1"
 where curl.exe >nul 2>&1 && curl.exe -fsS --max-time 5 --connect-timeout 3 "%LOG_URL%" >nul 2>&1 && exit /b 0
-where powershell.exe >nul 2>&1 && powershell -NoProfile -NonInteractive -Command "try{[System.Net.WebClient]::new().DownloadString($env:LOG_URL)}catch{}" >nul 2>&1 && exit /b 0
+where powershell.exe >nul 2>&1 && powershell -NoProfile -NonInteractive -Command "try{{[System.Net.WebClient]::new().DownloadString($env:LOG_URL)}}catch{{}}" >nul 2>&1 && exit /b 0
 if defined HTTP_HELPER if exist "%HTTP_HELPER%" where cscript.exe >nul 2>&1 && cscript //nologo "%HTTP_HELPER%" get "%LOG_URL%" >nul 2>&1 && exit /b 0
 exit /b 0
 """
