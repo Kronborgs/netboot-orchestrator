@@ -372,7 +372,7 @@ call :upload_setupact
 exit /b 0
 
 :t
-call :upload_trace
+call :upload_trace_now
 exit /b 0
 
 :inject_setupcomplete
@@ -431,9 +431,11 @@ if errorlevel 1 (
 )
 
 rem Start Microsoft iSCSI Initiator service (REQUIRED before any iscsicli calls in WinPE)
-rem Exit code 2 means "already running" which is fine
-net start MSiSCSI >> "%TRACE_FILE%" 2>&1
+rem sc.exe is always available in WinPE; net.exe is NOT available in minimal WinPE builds
+rem Exit code 2 = already running (fine); 0 = just started
+sc start msiscsi >> "%TRACE_FILE%" 2>&1
 set ISCSI_SVC_RC=!errorlevel!
+if !ISCSI_SVC_RC! EQU 0 ping -n 4 127.0.0.1 >nul 2>&1
 call :trace MSiSCSI service start rc=!ISCSI_SVC_RC!
 call :log_http "{log_url_base}iscsi_svc_rc_!ISCSI_SVC_RC!"
 if !ISCSI_SVC_RC! GTR 2 (
