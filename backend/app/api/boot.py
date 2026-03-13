@@ -336,6 +336,7 @@ call :log_http "{log_url_base}scan_drive_%DRIVE%_install_image_ok"
 
 echo Found installer media on %DRIVE%:
 call :trace launching setup from %SETUP_PATH%
+call :inject_setupcomplete %DRIVE%
 call :s %DRIVE%
 call :u
 call :t
@@ -372,6 +373,39 @@ exit /b 0
 
 :t
 call :upload_trace
+exit /b 0
+
+:inject_setupcomplete
+rem Write SetupComplete.cmd to system disk before setup.exe runs.
+rem This configures msiscsi.sys as BOOT_START so Phase 2 / OOBE can access the iSCSI disk.
+set INST_DRV=%~1
+set SC_WRITTEN=
+for %%D in (C D F G H I J K L M N O P Q R S T U V) do (
+    if not "%%D"=="%INST_DRV%" if not "%%D"=="X" (
+        if exist %%D:\ (
+            if not exist "%%D:\sources\install.wim" if not exist "%%D:\sources\install.esd" (
+                mkdir "%%D:\Windows\Setup\Scripts" 2>nul
+                if exist "%%D:\Windows\Setup\Scripts\" if not defined SC_WRITTEN set SC_WRITTEN=%%D
+            )
+        )
+    )
+)
+if not defined SC_WRITTEN (
+    call :trace inject_setupcomplete: no writable system disk candidate found
+    call :log_http "{log_url_base}setupcomplete_no_drive"
+    exit /b 1
+)
+(
+echo @echo off
+echo rem Netboot Orchestrator: configure iSCSI initiator for boot-start
+echo rem This runs at end of Phase 2 so msiscsi.sys persists through OOBE reboot.
+echo sc config msiscsi start= boot
+echo reg add HKLM\SYSTEM\CurrentControlSet\Services\msiscsi /v Start /t REG_DWORD /d 0 /f
+echo iscsicli QAddTargetPortal {boot_ip} 3260
+echo iscsicli PersistentLoginTarget {system_target_iqn} T * * {boot_ip} 3260 * * * * * * * * * * * * 0
+) > "!SC_WRITTEN!:\Windows\Setup\Scripts\SetupComplete.cmd"
+call :trace SetupComplete.cmd written to !SC_WRITTEN!:\Windows\Setup\Scripts\
+call :log_http "{log_url_base}setupcomplete_written_!SC_WRITTEN!"
 exit /b 0
 
 :attach_iscsi
@@ -835,12 +869,16 @@ async def boot_ipxe_main_menu(mac: str = Query(""), source: str = Query(""), db:
 
     # Log boot event with MAC and source context
     log_mac = mac.strip() or "unknown"
-    log_detail = "iPXE boot menu loaded"
-    if source == "winpe":
-        log_detail = "WinPE chain-loaded iPXE menu (WinPE finished or fell through)"
-    elif source:
-        log_detail = f"iPXE menu loaded (source={source})"
-    db.add_boot_log(log_mac, "menu_loaded", log_detail)
+    # Don't log menu_loaded for unknown MACs — these are devices that hit the
+    # dnsmasq dhcp-boot URL without a mac= parameter (initial PXE chain) and
+    # create useless log noise.
+    if log_mac != "unknown":
+        log_detail = "iPXE boot menu loaded"
+        if source == "winpe":
+            log_detail = "WinPE chain-loaded iPXE menu (WinPE finished or fell through)"
+        elif source:
+            log_detail = f"iPXE menu loaded (source={source})"
+        db.add_boot_log(log_mac, "menu_loaded", log_detail)
 
     script = f"""#!ipxe
 # {BRANDING}
