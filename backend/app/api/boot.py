@@ -70,6 +70,10 @@ router = APIRouter(prefix="/api/v1/boot", tags=["boot"])
 BRANDING = "Netboot Orchestrator is designed by Kenneth Kronborg AI Team"
 
 
+def get_db() -> Database:
+    return Database()
+
+
 @router.get("/winpe/startnet.cmd")
 async def winpe_startnet_cmd(
     meta: str = Query(""),
@@ -674,10 +678,6 @@ def _find_device_image(images: list, mac: str) -> Optional[dict]:
             return img
 
     return None
-
-
-def get_db() -> Database:
-    return Database()
 
 
 def get_file_service() -> FileService:
