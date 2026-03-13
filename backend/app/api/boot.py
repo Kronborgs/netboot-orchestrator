@@ -455,16 +455,7 @@ if errorlevel 1 (
     )
 )
 
-rem Test portal reachability: ICMP ping first, TCP:3260 fallback (ICMP may be firewalled on some setups)
-set PORTAL_UP=
-ping -n 1 -w 2000 %PORTAL% >nul 2>&1 && set PORTAL_UP=1
-if not defined PORTAL_UP where powershell.exe >nul 2>&1 && powershell -NoProfile -NonInteractive -Command "try{{$t=New-Object System.Net.Sockets.TcpClient;$t.Connect($env:PORTAL,3260);$t.Close();exit 0}}catch{{exit 1}}" >nul 2>&1 && set PORTAL_UP=1
-if not defined PORTAL_UP (
-    call :trace portal %PORTAL% unreachable via ICMP and TCP:3260 - skipping iscsicli
-    call :log_http "{log_url_base}iscsi_portal_unreachable"
-    exit /b 0
-)
-call :trace portal %PORTAL% reachable - proceeding with iscsicli
+call :trace proceeding with iscsicli portal=%PORTAL%
 
 rem Start Microsoft iSCSI Initiator service (REQUIRED before any iscsicli calls in WinPE)
 rem sc.exe is always available; net.exe is NOT available in minimal WinPE builds
