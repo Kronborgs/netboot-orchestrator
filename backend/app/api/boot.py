@@ -414,18 +414,40 @@ set TARGET=%~2
 set PERSISTENT=%~3
 if "%PORTAL%"=="" set PORTAL={boot_ip}
 if "%TARGET%"=="" exit /b 0
+
+rem Locate iscsicli.exe - it may not be in PATH in all WinPE builds
+set ISCSICLI=iscsicli.exe
 where iscsicli.exe >nul 2>&1
 if errorlevel 1 (
-    call :trace iscsicli.exe unavailable in this WinPE
-    exit /b 0
+    if exist X:\Windows\System32\iscsicli.exe (
+        set ISCSICLI=X:\Windows\System32\iscsicli.exe
+        set PATH=%PATH%;X:\Windows\System32
+        call :trace iscsicli found at System32 - added to PATH
+    ) else (
+        call :trace iscsicli.exe not found in PATH or System32
+        call :log_http "{log_url_base}iscsi_not_available"
+        exit /b 0
+    )
 )
+
+rem Start Microsoft iSCSI Initiator service (REQUIRED before any iscsicli calls in WinPE)
+rem Exit code 2 means "already running" which is fine
+net start MSiSCSI >> "%TRACE_FILE%" 2>&1
+set ISCSI_SVC_RC=!errorlevel!
+call :trace MSiSCSI service start rc=!ISCSI_SVC_RC!
+call :log_http "{log_url_base}iscsi_svc_rc_!ISCSI_SVC_RC!"
+if !ISCSI_SVC_RC! GTR 2 (
+    call :trace MSiSCSI failed to start - aborting iSCSI attach
+    exit /b 1
+)
+
 call :trace attach iscsi target=%TARGET% portal=%PORTAL% persistent=%PERSISTENT%
 call :log_http "{log_url_base}iscsi_attach_start__%TARGET%"
 
 iscsicli QAddTargetPortal %PORTAL% 3260 >nul 2>&1
-if errorlevel 1 (call :trace QAddTargetPortal failed rc=!errorlevel!) else (call :trace QAddTargetPortal ok)
+if errorlevel 1 (call :trace QAddTargetPortal failed) else (call :trace QAddTargetPortal ok)
 
-iscsicli AddTargetPortal %PORTAL% 3260 2>> "%TRACE_FILE%" >nul
+iscsicli AddTargetPortal %PORTAL% 3260 >> "%TRACE_FILE%" 2>&1
 set PORTAL_RC=!errorlevel!
 call :trace AddTargetPortal rc=!PORTAL_RC!
 call :log_http "{log_url_base}iscsi_portal_rc_!PORTAL_RC!"
@@ -434,7 +456,7 @@ iscsicli QLoginTarget %TARGET% >nul 2>&1
 set QLOGIN_RC=!errorlevel!
 call :trace QLoginTarget rc=!QLOGIN_RC!
 
-iscsicli LoginTarget %TARGET% T * * * * * * * * * * * * * * * 0 2>> "%TRACE_FILE%" >nul
+iscsicli LoginTarget %TARGET% T * * * * * * * * * * * * * * * 0 >> "%TRACE_FILE%" 2>&1
 set LOGIN_RC=!errorlevel!
 call :trace LoginTarget rc=!LOGIN_RC!
 call :log_http "{log_url_base}iscsi_login_rc_!LOGIN_RC!"
@@ -443,28 +465,23 @@ if /i "%PERSISTENT%"=="persistent" (
     rem Make this a persistent login so Windows Setup sees the iSCSI target
     rem as a boot-critical device and configures msiscsi.sys as BOOT_START.
     rem Without this, Setup fails with "required driver could not be installed".
-    rem Correct param order: TargetName T * * PortalAddress Port ...
-    iscsicli PersistentLoginTarget %TARGET% T * * %PORTAL% 3260 * * * * * * * * * * * * 0 2>> "%TRACE_FILE%" >nul
+    iscsicli PersistentLoginTarget %TARGET% T * * %PORTAL% 3260 * * * * * * * * * * * * 0 >> "%TRACE_FILE%" 2>&1
     set PERSIST_RC=!errorlevel!
     call :trace PersistentLoginTarget rc=!PERSIST_RC!
     call :log_http "{log_url_base}iscsi_persistent_rc_!PERSIST_RC!"
 )
 
-rem Check session list after attach
-iscsicli ListTargets 2>> "%TRACE_FILE%" >nul
-iscsicli SessionList 2>> "%TRACE_FILE%" >nul
+rem Dump session list to trace file for diagnostics
+iscsicli ListTargets >> "%TRACE_FILE%" 2>&1
+iscsicli SessionList >> "%TRACE_FILE%" 2>&1
+set SESSION_RC=!errorlevel!
+call :trace SessionList rc=!SESSION_RC!
+call :log_http "{log_url_base}iscsi_session_rc_!SESSION_RC!"
 
-ping -n 3 127.0.0.1 >nul 2>&1
+rem Wait for disk to enumerate after iSCSI attach (give kernel time to create the device)
+ping -n 6 127.0.0.1 >nul 2>&1
 wpeutil UpdateBootInfo >nul 2>&1
-
-rem Log disk discovery after iSCSI attach
-set DISK_COUNT=0
-for /F "skip=1 tokens=1" %%D in ('wmic diskdrive get DeviceID 2^>nul') do (
-    if not "%%D"=="" set /a DISK_COUNT+=1
-    call :trace disk found: %%D
-)
-call :trace disk_count=!DISK_COUNT!
-call :log_http "{log_url_base}iscsi_disks_found_!DISK_COUNT!"
+call :log_http "{log_url_base}iscsi_attach_complete"
 call :upload_trace_now
 exit /b 0
 
