@@ -165,7 +165,6 @@ if not "%INSTALLER_TARGET%"=="" (
 )
 """.format(
         installer_portal=portal_ip,
-        installer_portal=portal_ip,
         installer_target=target_iqn,
         system_portal=system_portal_ip,
         system_target=system_target_iqn,
