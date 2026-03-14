@@ -311,8 +311,8 @@ where cscript.exe >nul 2>&1 && if not exist "%HTTP_HELPER%" (
     ) > "%HTTP_HELPER%"
 )
 2>nul (echo [startnet] begin %DATE% %TIME% > "%TRACE_FILE%") || set TRACE_ENABLED=
-wpeinit
-rem wpeutil WaitForNetwork blocks until network interface is up (or times out)
+rem wpeinit already called by winpeshl.exe before LaunchApps - do NOT call again
+rem (second call returns non-zero, so skip here)
 wpeutil WaitForNetwork >nul 2>&1
 rem Extra 3s for DHCP to assign IP before first HTTP call
 ping -n 4 127.0.0.1 >nul 2>&1
@@ -739,7 +739,7 @@ async def winpe_winpeshl_ini(
     # NOTE: startnet_url uses base64url meta (no % signs) so cmd.exe does not
     # mangle %3A/%7C as numeric batch args (%3 = arg3 = empty).
     content = f"""[LaunchApps]
-%SYSTEMROOT%\\System32\\cmd.exe, /k wpeinit && wpeutil WaitForNetwork && ping -n 4 127.0.0.1 >nul 2>&1 && curl.exe -fsS --max-time 30 --connect-timeout 10 -o X:\\nb.cmd {startnet_url} && call X:\\nb.cmd
+%SYSTEMROOT%\\System32\\cmd.exe, /k wpeutil WaitForNetwork & ping -n 6 127.0.0.1 >nul 2>&1 & curl.exe -fsS --retry 3 --max-time 30 --connect-timeout 10 -o X:\\nb.cmd {startnet_url} & call X:\\nb.cmd
 """
     return PlainTextResponse(content)
 
