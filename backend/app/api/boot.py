@@ -160,8 +160,26 @@ if not "%SYSTEM_TARGET%"=="" (
 )
 
 if not "%INSTALLER_TARGET%"=="" (
-    echo Attempting WinPE iSCSI attach for installer media...
-    call :attach_iscsi "%INSTALLER_PORTAL%" "%INSTALLER_TARGET%"
+    rem iPXE keep-san 1 may have already attached the installer ISO before WinPE started.
+    rem Check if installer media is already accessible as a drive - if so, skip iscsicli.
+    rem Calling LoginTarget on an already-open session (iPXE keep-san) causes an indefinite hang.
+    set ISO_PRE_ATTACHED=
+    for %%L in (C D E F G H I J K L M N O P Q R S T U V) do (
+        if not defined ISO_PRE_ATTACHED if not "%%L"=="X" (
+            if exist "%%L:\setup.exe" if exist "%%L:\sources\install.esd" set ISO_PRE_ATTACHED=%%L
+            if exist "%%L:\setup.exe" if exist "%%L:\sources\install.wim" set ISO_PRE_ATTACHED=%%L
+            if exist "%%L:\sources\setup.exe" if exist "%%L:\sources\install.esd" set ISO_PRE_ATTACHED=%%L
+            if exist "%%L:\sources\setup.exe" if exist "%%L:\sources\install.wim" set ISO_PRE_ATTACHED=%%L
+            if exist "%%L:\x64\sources\install.esd" set ISO_PRE_ATTACHED=%%L
+        )
+    )
+    if defined ISO_PRE_ATTACHED (
+        call :trace installer already on !ISO_PRE_ATTACHED: from iPXE sanhook - skipping iscsicli
+        call :log_http "{log_url_base}installer_pre_attached_!ISO_PRE_ATTACHED!"
+    ) else (
+        echo Attempting WinPE iSCSI attach for installer media...
+        call :attach_iscsi "%INSTALLER_PORTAL%" "%INSTALLER_TARGET%"
+    )
 )
 """.format(
         installer_portal=portal_ip,
@@ -510,11 +528,19 @@ call :log_http "{log_url_base}iscsi_portal_rc_!PORTAL_RC!"
 iscsicli QLoginTarget %TARGET% >nul 2>&1
 set QLOGIN_RC=!errorlevel!
 call :trace QLoginTarget rc=!QLOGIN_RC!
+call :log_http "{log_url_base}iscsi_qlogin_rc_!QLOGIN_RC!"
 
-iscsicli LoginTarget %TARGET% T * * * * * * * * * * * * * * * 0 >> "%TRACE_FILE%" 2>&1
-set LOGIN_RC=!errorlevel!
-call :trace LoginTarget rc=!LOGIN_RC!
-call :log_http "{log_url_base}iscsi_login_rc_!LOGIN_RC!"
+if "!QLOGIN_RC!"=="0" (
+    rem QLoginTarget succeeded - session already established (e.g. iPXE keep-san) or quick login worked.
+    rem Skip full LoginTarget to prevent hang when a session already exists on the target.
+    set LOGIN_RC=0
+    call :log_http "{log_url_base}iscsi_login_rc_0_quick"
+) else (
+    iscsicli LoginTarget %TARGET% T * * * * * * * * * * * * * * * 0 >> "%TRACE_FILE%" 2>&1
+    set LOGIN_RC=!errorlevel!
+    call :trace LoginTarget rc=!LOGIN_RC!
+    call :log_http "{log_url_base}iscsi_login_rc_!LOGIN_RC!"
+)
 
 if /i "%PERSISTENT%"=="persistent" (
     rem Make this a persistent login so Windows Setup sees the iSCSI target
