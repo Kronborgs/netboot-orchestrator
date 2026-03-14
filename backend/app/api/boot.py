@@ -165,9 +165,18 @@ if not "%INSTALLER_TARGET%"=="" (
 )
 """.format(
         installer_portal=portal_ip,
+        installer_portal=portal_ip,
         installer_target=target_iqn,
         system_portal=system_portal_ip,
         system_target=system_target_iqn,
+    )
+
+    # URL for unattend.xml that configures MSiSCSI as BOOT_START during Windows Setup.
+    # Passing /unattend to setup.exe prevents "required driver could not be installed"
+    # at OOBE by telling the installer the system disk is an iSCSI boot target.
+    unattend_url = (
+        f"http://{boot_ip}:8000/api/v1/boot/winpe/unattend.xml"
+        f"?portal={boot_ip}&target={quote(system_target_iqn, safe=':.-')}"
     )
 
     script = f"""@echo off
@@ -365,7 +374,21 @@ call :inject_setupcomplete %DRIVE%
 call :s %DRIVE%
 call :u
 call :t
-start "" %SETUP_PATH%
+rem Fetch unattend.xml - configures MSiSCSI as BOOT_START so Windows Setup treats
+rem the iSCSI disk as a boot device.  Prevents "required driver could not be installed".
+set "NB_UNATTEND=X:\nb-unattend.xml"
+set NB_UA_OK=
+where curl.exe >nul 2>&1 && curl.exe -fsS --max-time 10 --connect-timeout 5 -o "%NB_UNATTEND%" "{unattend_url}" >nul 2>&1 && set NB_UA_OK=1
+if not defined NB_UA_OK where powershell.exe >nul 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ [System.Net.WebClient]::new().DownloadFile('{unattend_url}', $env:NB_UNATTEND); exit 0 }} catch {{ exit 1 }}" >nul 2>&1 && set NB_UA_OK=1
+if defined NB_UA_OK (
+    call :trace unattend.xml fetched - launching setup /unattend
+    call :log_http "{log_url_base}unattend_fetched"
+    start "" %SETUP_PATH% /unattend:"%NB_UNATTEND%"
+) else (
+    call :trace unattend.xml fetch failed - launching setup without /unattend
+    call :log_http "{log_url_base}unattend_fetch_failed"
+    start "" %SETUP_PATH%
+)
 set SETUP_EXIT=running
 for /L %%S in (1,1,180) do (
     ping -n 6 127.0.0.1 >nul 2>&1
