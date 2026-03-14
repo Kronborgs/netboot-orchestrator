@@ -479,12 +479,12 @@ for %%D in (C D F G H I J K L M N O P Q R S T U V) do (
     if exist "%%D:\Windows\System32\config\SYSTEM" (
         if not exist "%%D:\sources\install.wim" if not exist "%%D:\sources\install.esd" (
             call :trace post_phase1: loading offline SYSTEM hive from %%D:
-            reg load HKLM\NB_PGOFF "%%D:\Windows\System32\config\SYSTEM" >nul 2>&1
+            reg load HKLM\\NB_PGOFF "%%D:\Windows\System32\config\SYSTEM" >nul 2>&1
             if not errorlevel 1 (
                 rem ControlSet001 is the active set in a freshly installed Windows
-                reg add "HKLM\NB_PGOFF\ControlSet001\Control\Session Manager\Memory Management" /v PagingFiles /t REG_MULTI_SZ /d "" /f >nul 2>&1
+                reg add "HKLM\\NB_PGOFF\ControlSet001\Control\Session Manager\Memory Management" /v PagingFiles /t REG_MULTI_SZ /d "" /f >nul 2>&1
                 set PPF_RC=!errorlevel!
-                reg unload HKLM\NB_PGOFF >nul 2>&1
+                reg unload HKLM\\NB_PGOFF >nul 2>&1
                 call :trace paging disabled rc=!PPF_RC! on %%D:
                 call :log_http "{log_url_base}paging_disabled_%%D"
             ) else (
