@@ -739,7 +739,7 @@ async def winpe_winpeshl_ini(
     # NOTE: startnet_url uses base64url meta (no % signs) so cmd.exe does not
     # mangle %3A/%7C as numeric batch args (%3 = arg3 = empty).
     content = f"""[LaunchApps]
-%SYSTEMROOT%\\System32\\cmd.exe, /k wpeutil WaitForNetwork & ping -n 6 127.0.0.1 >nul 2>&1 & curl.exe -fsS --retry 3 --max-time 30 --connect-timeout 10 -o X:\\nb.cmd {startnet_url} & call X:\\nb.cmd
+%SYSTEMROOT%\\System32\\cmd.exe, /k wpeutil WaitForNetwork & ping -n 6 127.0.0.1 >nul 2>&1 & %SYSTEMROOT%\\System32\\curl.exe -fsS --max-time 30 -o X:\\nb.cmd {startnet_url} || %SYSTEMROOT%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -NoProfile -Command (New-Object Net.WebClient).DownloadFile('{startnet_url}','X:\\nb.cmd') & call X:\\nb.cmd
 """
     return PlainTextResponse(content)
 
