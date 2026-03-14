@@ -22,6 +22,7 @@ from pathlib import Path
 from urllib.parse import quote
 import unicodedata
 import re
+import base64
 from datetime import datetime
 from ..database import Database
 from ..services.file_service import FileService
@@ -80,15 +81,22 @@ async def winpe_startnet_cmd(
     request: Request = None,
     db: Database = Depends(get_db),
 ):
-    """WinPE startup script that auto-launches Windows setup from installer media."""
+    # meta may be base64url-encoded (new, no % signs) or legacy pipe-delimited URL-encoded
+    try:
+        padding = 4 - len(meta) % 4
+        decoded_meta = base64.urlsafe_b64decode(meta + '=' * (padding % 4)).decode('utf-8')
+        if '|' not in decoded_meta:
+            raise ValueError("not pipe-delimited")
+    except Exception:
+        decoded_meta = meta  # legacy: FastAPI already URL-decoded it
     mac = ""
     portal_ip = ""
     target_iqn = ""
     system_portal_ip = ""
     system_target_iqn = ""
-    if meta:
+    if decoded_meta:
         try:
-            decoded = meta.strip()
+            decoded = decoded_meta.strip()
             parts = decoded.split("|")
             if len(parts) >= 5:
                 mac = parts[0].strip()
@@ -706,13 +714,32 @@ async def winpe_unattend_xml(
 @router.get("/winpe/winpeshl.ini")
 async def winpe_winpeshl_ini(
     mac: str = Query(""),
+    meta: str = Query(""),
     db: Database = Depends(get_db),
+    request: Request = None,
 ):
-    """Force WinPE shell flow to launch our startnet script."""
+    """Force WinPE shell to download and run our startnet script via curl."""
     if mac:
         db.add_boot_log(mac, "winpe_shell_started", "WinPE shell initialized - running startnet.cmd")
-    content = """[LaunchApps]
-%SYSTEMROOT%\\System32\\cmd.exe, /k %SYSTEMROOT%\\System32\\startnet.cmd
+    boot_ip = _env("BOOT_SERVER_IP", "192.168.1.50")
+    if request:
+        host_header = request.headers.get("host", "")
+        host_ip = host_header.split(":")[0].strip()
+        if host_ip and host_ip not in ("localhost", "127.0.0.1", ""):
+            boot_ip = host_ip
+    # meta is base64url-encoded (no % signs) - safe to embed in cmd.exe /k line
+    startnet_url = (
+        f"http://{boot_ip}:8000/api/v1/boot/winpe/startnet.cmd?meta={meta}"
+        if meta else
+        f"http://{boot_ip}:8000/api/v1/boot/winpe/startnet.cmd"
+    )
+    # winpeshl.ini [LaunchApps] runs wpeinit, waits for network, then downloads
+    # and runs our startnet script via curl. Using /k keeps cmd.exe open so
+    # WinPE does not auto-reboot when the script finishes.
+    # NOTE: startnet_url uses base64url meta (no % signs) so cmd.exe does not
+    # mangle %3A/%7C as numeric batch args (%3 = arg3 = empty).
+    content = f"""[LaunchApps]
+%SYSTEMROOT%\\System32\\cmd.exe, /k wpeinit && wpeutil WaitForNetwork && ping -n 4 127.0.0.1 >nul 2>&1 && curl.exe -fsS --max-time 30 --connect-timeout 10 -o X:\\nb.cmd {startnet_url} && call X:\\nb.cmd
 """
     return PlainTextResponse(content)
 
@@ -1646,7 +1673,6 @@ chain {base}/ipxe/menu
     wim_url = f"http://{boot_ip}:8000/api/v1/os-installers/download/{quote(required_rel[3], safe='/')}{mac_qs}"
     installer_meta_portal = ""
     installer_meta_iqn = ""
-    winpeshl_url = f"http://{boot_ip}:8000/api/v1/boot/winpe/winpeshl.ini?mac={mac_encoded}"
     iso_hook_cmd = ""
     iso_info_line = ""
     installer_iso_url = ""
@@ -1729,11 +1755,10 @@ chain {base}/ipxe/menu
     logger.info(
         f"Windows install URLs: wimboot={wimboot_url} bcd={bcd_url} sdi={sdi_url} wim={wim_url}"
     )
-    startnet_meta = quote(
-        f"{mac}|{installer_meta_portal}|{installer_meta_iqn}|{system_portal_ip}|{system_target_iqn}",
-        safe=''
-    )
+    startnet_meta_raw = f"{mac}|{installer_meta_portal}|{installer_meta_iqn}|{system_portal_ip}|{system_target_iqn}"
+    startnet_meta = base64.urlsafe_b64encode(startnet_meta_raw.encode()).decode().rstrip('=')
     startnet_url = f"http://{boot_ip}:8000/api/v1/boot/winpe/startnet.cmd?meta={startnet_meta}"
+    winpeshl_url = f"http://{boot_ip}:8000/api/v1/boot/winpe/winpeshl.ini?mac={mac_encoded}&meta={startnet_meta}"
 
     if missing and has_iso_fallback:
         db.add_boot_log(
@@ -1821,8 +1846,6 @@ kernel {wimboot_url} || goto windows_failed
 initrd {bcd_url} BCD || goto windows_failed
 initrd {sdi_url} boot.sdi || goto windows_failed
 initrd {wim_url} boot.wim || goto windows_failed
-initrd {startnet_url} Windows/System32/startnet.cmd || goto windows_failed
-initrd {startnet_url} windows/system32/startnet.cmd || goto windows_failed
 initrd {winpeshl_url} winpeshl.ini || goto windows_failed
 initrd {winpeshl_url} Windows/System32/winpeshl.ini || goto windows_failed
 initrd {winpeshl_url} windows/system32/winpeshl.ini || goto windows_failed
