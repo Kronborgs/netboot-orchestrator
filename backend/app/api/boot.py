@@ -712,7 +712,7 @@ async def winpe_winpeshl_ini(
     if mac:
         db.add_boot_log(mac, "winpe_shell_started", "WinPE shell initialized - running startnet.cmd")
     content = """[LaunchApps]
-%SYSTEMROOT%\\System32\\cmd.exe, /k X:\\nb-startnet.cmd
+%SYSTEMROOT%\\System32\\cmd.exe, /k %SYSTEMROOT%\\System32\\startnet.cmd
 """
     return PlainTextResponse(content)
 
@@ -1821,8 +1821,6 @@ kernel {wimboot_url} || goto windows_failed
 initrd {bcd_url} BCD || goto windows_failed
 initrd {sdi_url} boot.sdi || goto windows_failed
 initrd {wim_url} boot.wim || goto windows_failed
-initrd {startnet_url} nb-startnet.cmd || goto windows_failed
-initrd {startnet_url} startnet.cmd || goto windows_failed
 initrd {startnet_url} Windows/System32/startnet.cmd || goto windows_failed
 initrd {startnet_url} windows/system32/startnet.cmd || goto windows_failed
 initrd {winpeshl_url} winpeshl.ini || goto windows_failed
