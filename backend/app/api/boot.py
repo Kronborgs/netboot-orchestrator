@@ -309,6 +309,10 @@ wpeutil WaitForNetwork >nul 2>&1
 rem Extra 3s for DHCP to assign IP before first HTTP call
 ping -n 4 127.0.0.1 >nul 2>&1
 call :trace wpeinit and WaitForNetwork completed
+echo.
+echo [Netboot] Network after wpeinit:
+ipconfig 2>nul
+echo.
 call :log_http "{log_url_base}winpe_startnet_started"
 call :upload_trace_now
 echo.
@@ -708,7 +712,7 @@ async def winpe_winpeshl_ini(
     if mac:
         db.add_boot_log(mac, "winpe_shell_started", "WinPE shell initialized - running startnet.cmd")
     content = """[LaunchApps]
-%SYSTEMROOT%\\System32\\cmd.exe /c X:\\nb-startnet.cmd
+%SYSTEMROOT%\\System32\\cmd.exe, /k X:\\nb-startnet.cmd
 """
     return PlainTextResponse(content)
 
