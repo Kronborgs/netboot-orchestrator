@@ -186,6 +186,7 @@ if not "%INSTALLER_TARGET%"=="" (
         installer_target=target_iqn,
         system_portal=system_portal_ip,
         system_target=system_target_iqn,
+        log_url_base=log_url_base,
     )
 
     # URL for unattend.xml that configures MSiSCSI as BOOT_START during Windows Setup.
