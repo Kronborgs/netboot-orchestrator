@@ -390,11 +390,11 @@ if not defined NB_UA_OK where powershell.exe >nul 2>&1 && powershell -NoProfile 
 if defined NB_UA_OK (
     call :trace unattend.xml fetched - launching setup /unattend /noreboot
     call :log_http "{log_url_base}unattend_fetched"
-    start "" %SETUP_PATH% /unattend:"%NB_UNATTEND%" /noreboot
+    start "" %SETUP_PATH% /unattend:"%NB_UNATTEND%"
 ) else (
-    call :trace unattend.xml fetch failed - launching setup /noreboot
+    call :trace unattend.xml fetch failed - launching setup
     call :log_http "{log_url_base}unattend_fetch_failed"
-    start "" %SETUP_PATH% /noreboot
+    start "" %SETUP_PATH%
 )
 set SETUP_EXIT=running
 for /L %%S in (1,1,180) do (
@@ -414,14 +414,6 @@ for /L %%S in (1,1,180) do (
 call :u
 call :t
 call :log_setup_exit !SETUP_EXIT!
-rem Phase 1 complete (setup.exe /noreboot exited). Disable paging file on the
-rem installed Windows before rebooting to Phase 2.  The paging file causes
-rem DRIVER_IRQL_NOT_LESS_OR_EQUAL BSOD during Phase 2 because the iSCSI NIC
-rem stack isn't ready when the pager tries to access the disk.
-call :post_phase1_fixes
-call :log_http "{log_url_base}winpe_phase1_complete_rebooting"
-call :trace Phase 1 done - rebooting to Phase 2
-wpeutil reboot
 exit /b 0
 
 :s
@@ -469,33 +461,6 @@ echo iscsicli PersistentLoginTarget {system_target_iqn} T * * {boot_ip} 3260 * *
 ) > "!SC_WRITTEN!:\Windows\Setup\Scripts\SetupComplete.cmd"
 call :trace SetupComplete.cmd written to !SC_WRITTEN!:\Windows\Setup\Scripts\
 call :log_http "{log_url_base}setupcomplete_written_!SC_WRITTEN!"
-exit /b 0
-
-:post_phase1_fixes
-rem Disable paging file in the freshly installed Windows (offline registry edit).
-rem Must be done while still in WinPE so the hive is accessible at a drive letter.
-rem Find the system disk: has \Windows\System32\config\SYSTEM but not install media.
-for %%D in (C D F G H I J K L M N O P Q R S T U V) do (
-    if exist "%%D:\Windows\System32\config\SYSTEM" (
-        if not exist "%%D:\sources\install.wim" if not exist "%%D:\sources\install.esd" (
-            call :trace post_phase1: loading offline SYSTEM hive from %%D:
-            reg load HKLM\\NB_PGOFF "%%D:\Windows\System32\config\SYSTEM" >nul 2>&1
-            if not errorlevel 1 (
-                rem ControlSet001 is the active set in a freshly installed Windows
-                reg add "HKLM\\NB_PGOFF\ControlSet001\Control\Session Manager\Memory Management" /v PagingFiles /t REG_MULTI_SZ /d "" /f >nul 2>&1
-                set PPF_RC=!errorlevel!
-                reg unload HKLM\\NB_PGOFF >nul 2>&1
-                call :trace paging disabled rc=!PPF_RC! on %%D:
-                call :log_http "{log_url_base}paging_disabled_%%D"
-            ) else (
-                call :trace reg load failed for %%D:\Windows\System32\config\SYSTEM
-                call :log_http "{log_url_base}paging_load_failed_%%D"
-            )
-            goto :ppf_done
-        )
-    )
-)
-:ppf_done
 exit /b 0
 
 :attach_iscsi
@@ -1771,8 +1736,9 @@ echo
 echo Acquiring DHCP lease...
 dhcp || goto windows_failed
 
-echo Attaching system iSCSI disk...
-{sanhook_cmd}
+set keep-san 1
+echo Attaching system iSCSI disk (iBFT)...
+{sanhook_cmd} || goto windows_failed
 
 {iso_attach_cmd}
 
@@ -1811,8 +1777,9 @@ echo
 echo Acquiring DHCP lease...
 dhcp || goto windows_failed
 
-echo Attaching system iSCSI disk...
-{sanhook_cmd} || echo  !! System iSCSI SAN attach failed in iPXE; WinPE will retry via iSCSI initiator.
+set keep-san 1
+echo Attaching system iSCSI disk (iBFT)...
+{sanhook_cmd} || goto windows_failed
 
 {iso_hook_cmd}
 
