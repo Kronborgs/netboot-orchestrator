@@ -760,28 +760,29 @@ async def winpe_winpeshl_ini(
     mac_norm = re.sub(r"[^0-9a-fA-F]", "", mac).lower()
     mac_hyphens = "-".join(mac_norm[i:i+2] for i in range(0, len(mac_norm), 2)) if mac_norm else "unknown"
     url = f"http://{boot_ip}:8000/api/v1/boot/winpe/startnet.cmd?mac={mac_hyphens}"
-    # Single-line VBScript using : as statement separator (valid VBScript syntax).
-    # MSXML2.ServerXMLHTTP.6.0 is registered in WinPE without any optional packages.
-    # ADODB.Stream binary-saves the response so CRLF is preserved exactly.
+    # VBScript using WinHttp (always registered in WinPE).
+    # Parens are escaped with ^ so cmd.exe does NOT interpret them as compound
+    # command block delimiters (the 0x80074005 "command failed" error was caused
+    # by cmd.exe seeing CreateObject( as the start of a () command group).
+    # Scripting.FileSystemObject writes ASCII file (3rd param False = no Unicode BOM).
     vbs = (
-        'Set x=CreateObject("MSXML2.ServerXMLHTTP.6.0")'
-        f':x.open "GET","{url}",False'
-        ':x.send'
-        ':Set s=CreateObject("ADODB.Stream")'
-        ':s.Open:s.Type=1:s.Write x.responseBody'
-        ':s.SaveToFile "X:\\nb.cmd",2:s.Close'
+        'Set x=CreateObject^("WinHttp.WinHttpRequest.5.1"^)'
+        f':x.Open "GET","{url}",False'
+        ':x.Send'
+        ':Set fs=CreateObject^("Scripting.FileSystemObject"^)'
+        f':Set f=fs.CreateTextFile^("X:\\nb.cmd",True,False^)'
+        ':f.Write x.ResponseText:f.Close'
     )
     content = (
         "[LaunchApps]\n"
         "%SYSTEMROOT%\\System32\\cmd.exe, "
-        "/k path %SYSTEMROOT%\\System32;%PATH% "
-        "& wpeutil WaitForNetwork "
-        "& ping -n 6 127.0.0.1 >nul 2>&1 "
-        f"& echo {vbs}>X:\\dl.vbs "
-        "& %SYSTEMROOT%\\System32\\cscript.exe //nologo X:\\dl.vbs "
-        f"& if not exist X:\\nb.cmd bitsadmin /transfer nb /download /priority normal \"{url}\" X:\\nb.cmd "
-        "& if exist X:\\nb.cmd (call X:\\nb.cmd) "
-        f"else echo [Netboot] DOWNLOAD FAILED. Try manually: bitsadmin /transfer nb /download /priority normal \"{url}\" X:\\nb.cmd\n"
+        "/k wpeutil WaitForNetwork"
+        " & ping -n 8 127.0.0.1 >nul 2>&1"
+        f" & echo {vbs}>X:\\dl.vbs"
+        " & %SYSTEMROOT%\\System32\\cscript.exe //nologo X:\\dl.vbs"
+        f" & if not exist X:\\nb.cmd %SYSTEMROOT%\\System32\\bitsadmin.exe /transfer nb {url} X:\\nb.cmd"
+        " & if exist X:\\nb.cmd call X:\\nb.cmd"
+        f" & if not exist X:\\nb.cmd echo [Netboot] All download methods failed. Run: bitsadmin /transfer nb {url} X:\\nb.cmd\n"
     )
     return PlainTextResponse(content)
 
