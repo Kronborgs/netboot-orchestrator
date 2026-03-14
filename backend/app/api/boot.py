@@ -78,6 +78,7 @@ def get_db() -> Database:
 @router.get("/winpe/startnet.cmd")
 async def winpe_startnet_cmd(
     meta: str = Query(""),
+    mac: str = Query(""),  # hyphenated MAC from winpeshl.ini e.g. f4-4d-30-06-44-05
     request: Request = None,
     db: Database = Depends(get_db),
 ):
@@ -89,6 +90,8 @@ async def winpe_startnet_cmd(
             raise ValueError("not pipe-delimited")
     except Exception:
         decoded_meta = meta  # legacy: FastAPI already URL-decoded it
+    mac_from_param = re.sub(r'[^0-9a-fA-F]', '', mac).lower()  # strip hyphens/colons
+    mac_colon = ':'.join(mac_from_param[i:i+2] for i in range(0, len(mac_from_param), 2)) if mac_from_param else ""
     mac = ""
     portal_ip = ""
     target_iqn = ""
@@ -109,11 +112,10 @@ async def winpe_startnet_cmd(
                 portal_ip = parts[1].strip()
                 target_iqn = parts[2].strip()
         except Exception:
-            mac = ""
-            portal_ip = ""
-            target_iqn = ""
-            system_portal_ip = ""
-            system_target_iqn = ""
+            pass
+    # If mac param provided and we didn't get targets from meta, do server-side lookup
+    if mac_colon and not mac:
+        mac = mac_colon
 
     if mac:
         db.add_boot_log(
@@ -137,6 +139,33 @@ async def winpe_startnet_cmd(
                 portal_ip = boot_ip
             if system_portal_ip:
                 system_portal_ip = boot_ip
+    # Server-side lookup using mac param if meta didn't supply targets
+    if mac_colon and not system_target_iqn:
+        try:
+            _iscsi = IscsiService(images_path=_env("IMAGES_PATH", "/iscsi-images"))
+            _dev = _find_device_image(_iscsi.list_images(), mac_colon)
+            if _dev:
+                system_target_iqn = _dev.get("target_name", f"{_iscsi.iqn_prefix}:{_dev['id']}")
+                system_portal_ip = boot_ip
+        except Exception as e:
+            logger.warning(f"winpe_startnet system lookup: {e}")
+    if mac_colon and not target_iqn:
+        try:
+            _iso_san = _env("WINDOWS_INSTALLER_ISO_SAN_URL", "")
+            _iso_path = _env("WINDOWS_INSTALLER_ISO_PATH", "")
+            if _iso_san:
+                _, target_iqn = _parse_iscsi_san_url(_iso_san)
+                portal_ip = boot_ip
+            elif _iso_path:
+                from pathlib import Path as _P
+                _iscsi2 = IscsiService(images_path=_env("IMAGES_PATH", "/iscsi-images"))
+                _fp = _P(_env("OS_INSTALLERS_PATH", "/data/os-installers")) / _iso_path
+                _ei = _iscsi2.ensure_installer_iso_target(_iso_path, _fp)
+                if _ei.get("success"):
+                    target_iqn = _ei.get("target_name", "")
+                    portal_ip = boot_ip
+        except Exception as e:
+            logger.warning(f"winpe_startnet installer lookup: {e}")
     mac_for_url = (mac or "").strip().lower() or "unknown"
     mac_encoded = quote(mac_for_url, safe=':')
     log_url_base = (
@@ -718,7 +747,7 @@ async def winpe_winpeshl_ini(
     db: Database = Depends(get_db),
     request: Request = None,
 ):
-    """Force WinPE shell to download and run our startnet script via curl."""
+    """Force WinPE shell to download and run our startnet script via cscript/VBScript."""
     if mac:
         db.add_boot_log(mac, "winpe_shell_started", "WinPE shell initialized - running startnet.cmd")
     boot_ip = _env("BOOT_SERVER_IP", "192.168.1.50")
@@ -727,20 +756,33 @@ async def winpe_winpeshl_ini(
         host_ip = host_header.split(":")[0].strip()
         if host_ip and host_ip not in ("localhost", "127.0.0.1", ""):
             boot_ip = host_ip
-    # meta is base64url-encoded (no % signs) - safe to embed in cmd.exe /k line
-    startnet_url = (
-        f"http://{boot_ip}:8000/api/v1/boot/winpe/startnet.cmd?meta={meta}"
-        if meta else
-        f"http://{boot_ip}:8000/api/v1/boot/winpe/startnet.cmd"
+    # Use hyphenated MAC in URL - no % signs, safe in cmd.exe /k line
+    mac_norm = re.sub(r"[^0-9a-fA-F]", "", mac).lower()
+    mac_hyphens = "-".join(mac_norm[i:i+2] for i in range(0, len(mac_norm), 2)) if mac_norm else "unknown"
+    url = f"http://{boot_ip}:8000/api/v1/boot/winpe/startnet.cmd?mac={mac_hyphens}"
+    # Single-line VBScript using : as statement separator (valid VBScript syntax).
+    # MSXML2.ServerXMLHTTP.6.0 is registered in WinPE without any optional packages.
+    # ADODB.Stream binary-saves the response so CRLF is preserved exactly.
+    vbs = (
+        'Set x=CreateObject("MSXML2.ServerXMLHTTP.6.0")'
+        f':x.open "GET","{url}",False'
+        ':x.send'
+        ':Set s=CreateObject("ADODB.Stream")'
+        ':s.Open:s.Type=1:s.Write x.responseBody'
+        ':s.SaveToFile "X:\\nb.cmd",2:s.Close'
     )
-    # winpeshl.ini [LaunchApps] runs wpeinit, waits for network, then downloads
-    # and runs our startnet script via curl. Using /k keeps cmd.exe open so
-    # WinPE does not auto-reboot when the script finishes.
-    # NOTE: startnet_url uses base64url meta (no % signs) so cmd.exe does not
-    # mangle %3A/%7C as numeric batch args (%3 = arg3 = empty).
-    content = f"""[LaunchApps]
-%SYSTEMROOT%\\System32\\cmd.exe, /k wpeutil WaitForNetwork & ping -n 6 127.0.0.1 >nul 2>&1 & %SYSTEMROOT%\\System32\\curl.exe -fsS --max-time 30 -o X:\\nb.cmd {startnet_url} || %SYSTEMROOT%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -NoProfile -Command (New-Object Net.WebClient).DownloadFile('{startnet_url}','X:\\nb.cmd') & call X:\\nb.cmd
-"""
+    content = (
+        "[LaunchApps]\n"
+        "%SYSTEMROOT%\\System32\\cmd.exe, "
+        "/k path %SYSTEMROOT%\\System32;%PATH% "
+        "& wpeutil WaitForNetwork "
+        "& ping -n 6 127.0.0.1 >nul 2>&1 "
+        f"& echo {vbs}>X:\\dl.vbs "
+        "& %SYSTEMROOT%\\System32\\cscript.exe //nologo X:\\dl.vbs "
+        f"& if not exist X:\\nb.cmd bitsadmin /transfer nb /download /priority normal \"{url}\" X:\\nb.cmd "
+        "& if exist X:\\nb.cmd (call X:\\nb.cmd) "
+        f"else echo [Netboot] DOWNLOAD FAILED. Try manually: bitsadmin /transfer nb /download /priority normal \"{url}\" X:\\nb.cmd\n"
+    )
     return PlainTextResponse(content)
 
 
@@ -1758,7 +1800,10 @@ chain {base}/ipxe/menu
     startnet_meta_raw = f"{mac}|{installer_meta_portal}|{installer_meta_iqn}|{system_portal_ip}|{system_target_iqn}"
     startnet_meta = base64.urlsafe_b64encode(startnet_meta_raw.encode()).decode().rstrip('=')
     startnet_url = f"http://{boot_ip}:8000/api/v1/boot/winpe/startnet.cmd?meta={startnet_meta}"
-    winpeshl_url = f"http://{boot_ip}:8000/api/v1/boot/winpe/winpeshl.ini?mac={mac_encoded}&meta={startnet_meta}"
+    # winpeshl_url uses short hyphenated mac - server looks up targets at download time
+    mac_norm_wi = re.sub(r'[^0-9a-fA-F]', '', mac).lower()
+    mac_hyphens_wi = '-'.join(mac_norm_wi[i:i+2] for i in range(0, len(mac_norm_wi), 2)) if mac_norm_wi else 'unknown'
+    winpeshl_url = f"http://{boot_ip}:8000/api/v1/boot/winpe/winpeshl.ini?mac={mac_hyphens_wi}"
 
     if missing and has_iso_fallback:
         db.add_boot_log(
